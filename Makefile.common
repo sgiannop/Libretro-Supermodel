@@ -79,15 +79,15 @@ SOURCES_CXX +=   \
 					  $(CORE_DIR)/Src/Graphics/Render2D.cpp \
 					  $(CORE_DIR)/Src/Model3/TileGen.cpp \
 					  $(CORE_DIR)/Src/Model3/Model3.cpp \
-					  $(CORE_DIR)/Src/Cpu/PowerPC/ppc.cpp \
+					  $(CORE_DIR)/Src/CPU/PowerPC/ppc.cpp \
 					  $(CORE_DIR)/Src/Model3/SoundBoard.cpp \
 					  $(CORE_DIR)/Src/Sound/SCSP.cpp \
 					  $(CORE_DIR)/Src/Sound/SCSPDSP.cpp \
-					  $(CORE_DIR)/Src/Cpu/68K/68K.cpp
+					  $(CORE_DIR)/Src/CPU/68K/68K.cpp
 
 SOURCES_CXX +=   \
 					  $(CORE_DIR)/Src/Model3/DSB.cpp \
-					  $(CORE_DIR)/Src/Cpu/Z80/Z80.cpp \
+					  $(CORE_DIR)/Src/CPU/Z80/Z80.cpp \
 					  $(CORE_DIR)/Src/Model3/IRQ.cpp \
 					  $(CORE_DIR)/Src/Model3/53C810.cpp \
 					  $(CORE_DIR)/Src/Model3/PCI.cpp \
@@ -132,7 +132,7 @@ SOURCES_CXX +=   $(CORE_DIR)/Src/Network/NetBoard.cpp \
 					  $(CORE_DIR)/Src/Network/WinSockWrap.cpp
 endif
 
-SOURCES_C  += $(CORE_DIR)/Src/OSD/Libretro/libretro-common/rthreads/rthreads.c
+SOURCES_C  += $(CORE_DIR)/Src/OSD/libretro/libretro-common/rthreads/rthreads.c
 
 ifeq ($(STATIC_LINKING),1)
 else
