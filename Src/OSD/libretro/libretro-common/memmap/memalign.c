@@ -1,7 +1,7 @@
-/* Copyright  (C) 2018 - M4xw <m4x@m4xw.net>, RetroArch Team
+/* Copyright  (C) 2010-2020 The RetroArch team
  *
  * ---------------------------------------------------------------------------------------
- * The following license statement only applies to this file (switch_pthread.c).
+ * The following license statement only applies to this file (memalign.c).
  * ---------------------------------------------------------------------------------------
  *
  * Permission is hereby granted, free of charge,
@@ -20,41 +20,44 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#include "switch_pthread.h"
+#include <stdint.h>
+#include <stdlib.h>
 
-#define STACKSIZE 1000000 * 12 // 12 MB
-static uint32_t threadCounter = 1;
-int pthread_create(pthread_t *thread, const pthread_attr_t *attr, void *(*start_routine)(void *), void *arg)
+#include <memalign.h>
+
+void *memalign_alloc(size_t boundary, size_t size)
 {
-   u32 prio = 0;
+   void **place   = NULL;
+   uintptr_t addr = 0;
+   void *ptr      = (void*)malloc(boundary + size + sizeof(uintptr_t));
+   if (!ptr)
+      return NULL;
 
-   Thread new_switch_thread;
+   addr           = ((uintptr_t)ptr + sizeof(uintptr_t) + boundary)
+      & ~(boundary - 1);
+   place          = (void**)addr;
+   place[-1]      = ptr;
 
-   svcGetThreadPriority(&prio, CUR_THREAD_HANDLE);
-
-   // Launch threads on Core 1
-   int rc = threadCreate(&new_switch_thread, (void (*)(void *))start_routine, arg, STACKSIZE, prio - 1, 1);
-
-   if (R_FAILED(rc))
-   {
-      return EAGAIN;
-   }
-
-   printf("[Threading]: Starting Thread(#%i)\n", threadCounter);
-   if (R_FAILED(threadStart(&new_switch_thread)))
-   {
-      threadClose(&new_switch_thread);
-      return -1;
-   }
-
-   *thread = new_switch_thread;
-
-   return 0;
+   return (void*)addr;
 }
 
-void pthread_exit(void *retval)
+void memalign_free(void *ptr)
 {
-   (void)retval;
-   printf("[Threading]: Exiting Thread\n");
-   svcExitThread();
+   void **p = NULL;
+   if (!ptr)
+      return;
+
+   p = (void**)ptr;
+   free(p[-1]);
+}
+
+void *memalign_alloc_aligned(size_t size)
+{
+#if defined(__x86_64__) || defined(__LP64) || defined(__IA64__) || defined(_M_X64) || defined(_M_X64) || defined(_WIN64)
+   return memalign_alloc(64, size);
+#elif defined(__i386__) || defined(__i486__) || defined(__i686__) || defined(GEKKO) || defined(_M_IX86)
+   return memalign_alloc(32, size);
+#else
+   return memalign_alloc(32, size);
+#endif
 }
