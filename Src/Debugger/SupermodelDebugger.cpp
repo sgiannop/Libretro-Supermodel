@@ -6,7 +6,7 @@
  ** This file is part of Supermodel.
  **
  ** Supermodel is free software: you can redistribute it and/or modify it under
- ** the terms of the GNU General Public License as published by the Free 
+ ** the terms of the GNU General Public License as published by the Free
  ** Software Foundation, either version 3 of the License, or (at your option)
  ** any later version.
  **
@@ -25,11 +25,23 @@
 
 #ifdef SUPERMODEL_DEBUGGER
 
-#include "Supermodel.h"
+#include "SupermodelDebugger.h"
 
+#include "Supermodel.h"
+#include "BlockFile.h"
 #include "ConsoleDebugger.h"
 #include "CPUDebug.h"
 #include "Label.h"
+#ifdef NET_BOARD
+#include "Network/NetBoard.h"
+#endif // NET_BOARD
+#include "CPU/Musashi68KDebug.h"
+#include "CPU/PPCDebug.h"
+#include "CPU/Z80Debug.h"
+#include "Inputs/Input.h"
+#include "Inputs/InputSystem.h"
+#include "Model3/SoundBoard.h"
+#include "OSD/Audio.h"
 
 #include <cstdio>
 #include <string>
@@ -42,7 +54,7 @@ namespace Debugger
 
 	static char s_mSlotStr[32][20];
 	static char s_sSlotStr[32][20];
-		
+
 	CCPUDebug *CSupermodelDebugger::CreateMainBoardCPUDebug(::CModel3 *model3)
 	{
 		CPPCDebug *cpu = new CPPCDebug("MainPPC");
@@ -50,8 +62,8 @@ namespace Debugger
 		// Interrupts
 		cpu->AddInterrupt("VD0", 0, "Unknown video-related");
 		cpu->AddInterrupt("VBL", 1, "VBlank start");
-		cpu->AddInterrupt("VD2", 2, "Unknown video-related");
-		cpu->AddInterrupt("VD3", 3, "Unknown video-related");
+		cpu->AddInterrupt("VDP", 2, "DP done (display processing)");
+		cpu->AddInterrupt("VGP", 3, "GP done (geometry processing)");
 		cpu->AddInterrupt("NET", 4, "Network");
 		cpu->AddInterrupt("UN5", 5, "Unknown");
 		cpu->AddInterrupt("SND", 6, "SCSP (sound)");
@@ -70,8 +82,8 @@ namespace Debugger
 		cpu->AddRegion(0xC0000000, 0xC00000FF, false, false, "SCSI (Step 1.x)");
 #endif
 #ifdef NET_BOARD
-		cpu->AddRegion(0xC0000000, 0xC001FFFF, false, false, "Network Buffer");
-		cpu->AddRegion(0xC0020000, 0xC003FFFF, false, false, "Network RAM");
+		cpu->AddRegion(0xC0000000, 0xC000FFFF, false, false, "Netboard Shared RAM (Step 1.5+)");
+		cpu->AddRegion(0xC0020000, 0xC002FFFF, false, false, "Netboard Program RAM (Step 1.5+)");
 #endif
 		cpu->AddRegion(0xC1000000, 0xC10000FF, false, false, "SCSI (Step 1.x) (Lost World expects it here)");
 		cpu->AddRegion(0xC2000000, 0xC20000FF, false, false, "Real3D DMA (Step 2.x)");
@@ -79,7 +91,7 @@ namespace Debugger
 		cpu->AddRegion(0xF0080000, 0xF0080007, false, false, "Sound Board Registers");
 		cpu->AddRegion(0xF00C0000, 0xF00DFFFF, false, false, "Backup RAM");
 		cpu->AddRegion(0xF0100000, 0xF010003F, false, false, "System Registers");
-		cpu->AddRegion(0xF0140000, 0xF014003F, false, false, "Real, 0xTime Clock");
+		cpu->AddRegion(0xF0140000, 0xF014003F, false, false, "Real-Time Clock");
 		cpu->AddRegion(0xF0180000, 0xF019FFFF, false, false, "Security Board RAM");
 		cpu->AddRegion(0xF01A0000, 0xF01A003F, false, false, "Security Board Registers");
 		cpu->AddRegion(0xF0800CF8, 0xF0800CFF, false, false, "MPC105 CONFIG_cpu->AddR (Step 1.x)");
@@ -91,6 +103,7 @@ namespace Debugger
 		cpu->AddRegion(0xF8FFF000, 0xF8FFF0FF, false, false, "MPC105 (Step 1.x) or MPC106 (Step 2.x) Registers");
 		cpu->AddRegion(0xF9000000, 0xF90000FF, false, false, "NCR 53C810 Registers (Step 1.x?)");
 		cpu->AddRegion(0xFE040000, 0xFE04003F, false, false, "Mirrored Input Registers");
+		cpu->AddRegion(0xFE100000, 0xFE10003F, false, false, "Mirrored System Registers");
 		cpu->AddRegion(0xFEC00000, 0xFEDFFFFF, false, false, "MPC106 CONFIG_cpu->AddR (Step 2.x)");
 		cpu->AddRegion(0xFEE00000, 0xFEFFFFFF, false, false, "MPC106 CONFIG_DATA (Step 2.x)");
 		cpu->AddRegion(0xFF000000, 0xFF7FFFFF, true,  true,  "Banked CROM (CROMxx)");
@@ -170,7 +183,7 @@ namespace Debugger
 			cpu->AddMappedIO(addr + 0x17, 1, "EFSDL,EFPAN",                            s_mSlotStr[slot]);
 		}
 		// SCSP Master control registers
-		const char *masterCtl = "SCSP Master Control Registers";
+		static const char *masterCtl = "SCSP Master Control Registers";
 		cpu->AddMappedIO(0x100400, 1, "MEM4MB,DAC18B",                   masterCtl);
 		cpu->AddMappedIO(0x100401, 1, "VER,MVOL",                        masterCtl);
 		cpu->AddMappedIO(0x100402, 2, "RBL,RBP",                         masterCtl);
@@ -220,7 +233,7 @@ namespace Debugger
 		}
 
 		// SCSP Master control registers
-		const char *slaveCtl = "SCSP Slave Control Registers";
+		static const char *slaveCtl = "SCSP Slave Control Registers";
 		cpu->AddMappedIO(0x300400, 1, "MEM4MB,DAC18B",                   slaveCtl);
 		cpu->AddMappedIO(0x300401, 1, "VER,MVOL",                        slaveCtl);
 		cpu->AddMappedIO(0x300402, 2, "RBL,RBP",                         slaveCtl);
@@ -254,12 +267,12 @@ namespace Debugger
 	{
 		CSoundBoard *sndBrd = model3->GetSoundBoard();
 		CDSB *dsb = sndBrd->GetDSB();
-		
+
 		CDSB1 *dsb1 = dynamic_cast<CDSB1*>(dsb);
 		if (dsb1 != NULL)
 		{
 			CZ80Debug *cpu = new CZ80Debug("DSBZ80", dsb1->GetZ80());
-			
+
 			// Regions
 			cpu->AddRegion(0x0000, 0x7FFF, true,  true,  "ROM");
 			cpu->AddRegion(0x8000, 0xFFFF, false, false, "RAM");
@@ -267,12 +280,12 @@ namespace Debugger
 			// TODO - rename some I/O ports
 			return cpu;
 		}
-		
+
 		CDSB2 *dsb2 = dynamic_cast<CDSB2*>(dsb);
 		if (dsb2 != NULL)
 		{
 			CMusashi68KDebug *cpu = new CMusashi68KDebug("DSB68K", dsb2->GetM68K());
-			
+
 			// Regions
 			cpu->AddRegion(0x000000, 0x020000, true,  true,  "ROM");
 			cpu->AddRegion(0xF00000, 0xF10000, false, false, "RAM");
@@ -290,7 +303,7 @@ namespace Debugger
 		if (!drvBrd->IsAttached())
 			return NULL;
 		CZ80Debug *cpu = new CZ80Debug("DrvZ80", drvBrd->GetZ80());
-		
+
 		// Regions
 		cpu->AddRegion(0x0000, 0x7FFF, true,  true,  "ROM");
 		cpu->AddRegion(0xE000, 0xFFFF, false, false, "RAM");
@@ -302,7 +315,9 @@ namespace Debugger
 #ifdef NET_BOARD
 	CCPUDebug *CSupermodelDebugger::CreateNetBoardCPUDebug(::CModel3 * model3)
 	{
-		CNetBoard *netBrd = model3->GetNetBoard();
+		CNetBoard *netBrd = dynamic_cast<CNetBoard*>(model3->GetNetBoard());
+		if (!netBrd)
+			return NULL;
 		if (!netBrd->IsAttached())
 			return NULL;
 		CMusashi68KDebug *cpu = new CMusashi68KDebug("NET68K", netBrd->GetM68K());
@@ -314,7 +329,7 @@ namespace Debugger
 		cpu->AddRegion(0x080000, 0x0bffff, false, false, "Net 2"); // commram ???
 		cpu->AddRegion(0x0c0000, 0x0c01ff, false, false, "Net 3"); // ??? size unknown
 
-		const char *NetReg = "NetBoard Control Registers";
+		static const char *NetReg = "NetBoard Control Registers";
 		cpu->AddMappedIO(0x010110, 4, "Reg 1", NetReg);
 		cpu->AddMappedIO(0x010114, 4, "Reg 2", NetReg);
 		cpu->AddMappedIO(0x010180, 4, "Reg 3", NetReg);
@@ -323,8 +338,8 @@ namespace Debugger
 	}
 #endif
 
-	CSupermodelDebugger::CSupermodelDebugger(::CModel3 *model3, ::CInputs *inputs, ::CLogger *logger) : 
-		CConsoleDebugger(), m_model3(model3), m_inputs(inputs), m_logger(logger), 
+	CSupermodelDebugger::CSupermodelDebugger(::CModel3 *model3, ::CInputs *inputs, std::shared_ptr<CLogger> logger) :
+		CConsoleDebugger(), m_model3(model3), m_inputs(inputs), m_logger(logger),
 		m_loadEmuState(false), m_saveEmuState(false), m_resetEmu(false)
 	{
 		//
@@ -337,7 +352,7 @@ namespace Debugger
 		// Add main board CPU
 		cpu = CreateMainBoardCPUDebug(m_model3);
 		if (cpu) AddCPU(cpu);
-		
+
 		// Add sound board CPU (if attached)
 		cpu = CreateSoundBoardCPUDebug(m_model3);
 		if (cpu) AddCPU(cpu);
@@ -345,7 +360,7 @@ namespace Debugger
 		// Add sound daughter board CPU (if attached)
 		cpu = CreateDSBCPUDebug(m_model3);
 		if (cpu) AddCPU(cpu);
-		
+
 		// Add drive board CPU (if attached)
 		cpu = CreateDriveBoardCPUDebug(m_model3);
 		if (cpu) AddCPU(cpu);
@@ -427,7 +442,7 @@ namespace Debugger
 				Print("Mising input name.\n");
 				return false;
 			}
-			::CInput *input = (*m_inputs)[token];
+			std::shared_ptr<CInput> input = (*m_inputs)[token];
 			if (input == NULL)
 			{
 				Print("No input with id or label '%s'.\n", token);
@@ -458,7 +473,7 @@ namespace Debugger
 				Print("Mising input id or label.\n");
 				return false;
 			}
-			::CInput *input = (*m_inputs)[token];
+			std::shared_ptr<CInput> input = (*m_inputs)[token];
 			if (input == NULL)
 			{
 				Print("No input with id or label '%s'.\n", token);
@@ -490,7 +505,7 @@ namespace Debugger
 				Print("Mising input id or label.\n");
 				return false;
 			}
-			::CInput *input = (*m_inputs)[token];
+			std::shared_ptr<CInput> input = (*m_inputs)[token];
 			if (input == NULL)
 			{
 				Print("No input with id or label '%s'.\n", token);
@@ -516,7 +531,7 @@ namespace Debugger
 				Print("Mising input id or label.\n");
 				return false;
 			}
-			CInput *input = (*m_inputs)[token];
+			std::shared_ptr<CInput> input = (*m_inputs)[token];
 			if (input == NULL)
 			{
 				Print("No input with id or label '%s'.\n", token);
@@ -533,7 +548,7 @@ namespace Debugger
 				append = false;
 			else if (CheckToken(token, "a", "append"))
 				append = true;
-			else 
+			else
 			{
 				Print("Enter a valid mode (s)et or (a)ppend.\n");
 				return false;
@@ -541,7 +556,7 @@ namespace Debugger
 
 			Print("Configure input %s [%s]: %s...", input->label, input->GetMapping(), (append ? "Appending" : "Setting"));
 			fflush(stdout);	// required on terminals that use buffering
-	
+
 			// Configure the input
 			if (input->Configure(append, "KEY_ESCAPE"))
 				Print(" %s\n", input->GetMapping());
@@ -551,7 +566,7 @@ namespace Debugger
 		}
 		else if (CheckToken(token, "caip", "configallinputs"))		// configallinputs
 		{
-			m_inputs->ConfigureInputs(&m_model3->GetGame());
+			m_inputs->ConfigureInputs(m_model3->GetGame());
 			return false;
 		}
 		//
@@ -561,7 +576,7 @@ namespace Debugger
 		{
 			CConsoleDebugger::ProcessToken(token, cmd);
 
-			const char *fmt = "  %-6s %-25s %s\n";
+			static const char *fmt = "  %-6s %-25s %s\n";
 			Print(" Emulator:\n");
 			Print(fmt, "les",    "loademustate",           "<filename>");
 			Print(fmt, "ses",    "saveemustate",           "<filename>");
@@ -572,14 +587,14 @@ namespace Debugger
 			Print(fmt, "sip",    "setinput",               "(<id>|<label>) <mapping>");
 			Print(fmt, "rip",    "resetinput",             "(<id>|<label>)");
 			Print(fmt, "cip",    "configinput",            "(<id>|<label>) [(s)et|(a)ppend]");
-			Print(fmt, "caip",   "configallinputs",        "");   
+			Print(fmt, "caip",   "configallinputs",        "");
 			return false;
 		}
 		else
-			return CConsoleDebugger::ProcessToken(token, cmd);		
+			return CConsoleDebugger::ProcessToken(token, cmd);
 	}
 
-	bool CSupermodelDebugger::InputIsValid(::CInput *input)
+	bool CSupermodelDebugger::InputIsValid(std::shared_ptr<CInput> input)
 	{
 		return input->IsUIInput() || (input->gameFlags & m_model3->GetGame().inputs);
 	}
@@ -595,7 +610,7 @@ namespace Debugger
 		size_t mappingWidth    = 0;
 		for (unsigned i = 0; i < m_inputs->Count(); i++)
 		{
-			::CInput *input = (*m_inputs)[i];
+			std::shared_ptr<CInput> input = (*m_inputs)[i];
 			if (!InputIsValid(input))
 				continue;
 
@@ -604,14 +619,14 @@ namespace Debugger
 				mappingWidth = std::max<size_t>(mappingWidth, strlen(input->GetMapping()));
 		}
 		mappingWidth = std::min<size_t>(mappingWidth, 20);
-		
+
 		// Print labels, mappings and values for each input
 		const char *groupLabel = NULL;
 		char idAndLabel[255];
 		char mapping[21];
 		for (unsigned i = 0; i < m_inputs->Count(); i++)
 		{
-			::CInput *input = (*m_inputs)[i];
+			std::shared_ptr<CInput> input = (*m_inputs)[i];
 			if (!InputIsValid(input))
 				continue;
 
@@ -645,17 +660,17 @@ namespace Debugger
 		char fileName[25];
 		sprintf(fileName, "Debug/%s.ds", m_model3->GetGame().name.c_str());
 		SaveState(fileName);
-		
+
 		CConsoleDebugger::Detaching();
 	}
 
 	bool CSupermodelDebugger::LoadModel3State(const char *fileName)
 	{
-		// Open file and find header 
+		// Open file and find header
 		CBlockFile state;
-		if (state.Load(fileName) != OKAY)
+		if (state.Load(fileName) != Result::OKAY)
 			return false;
-		if (state.FindBlock("Debugger Model3 State") != OKAY)
+		if (state.FindBlock("Debugger Model3 State") != Result::OKAY)
 		{
 			state.Close();
 			return false;
@@ -683,7 +698,7 @@ namespace Debugger
 	{
 		// Create file with header
 		CBlockFile state;
-		if (state.Create(fileName, "Debugger Model3 State", __FILE__) != OKAY)
+		if (state.Create(fileName, "Debugger Model3 State", __FILE__) != Result::OKAY)
 			return false;
 
 		// Write out version in header
@@ -713,7 +728,7 @@ namespace Debugger
 		else
 			CConsoleDebugger::DebugLog(fmt, vl);
 	}
-		
+
 	void CSupermodelDebugger::InfoLog(const char *fmt, va_list vl)
 	{
 		// Use the supplied logger, if any
@@ -722,7 +737,7 @@ namespace Debugger
 		else
 			CConsoleDebugger::InfoLog(fmt, vl);
 	}
-	
+
 	void CSupermodelDebugger::ErrorLog(const char *fmt, va_list vl)
 	{
 		// Use the supplied logger, if any

@@ -28,15 +28,14 @@
 
 /* IBM/Motorola PowerPC 4xx/6xx Emulator */
 
+#include "ppc.h"
+
 #include <cstring>	// memset()
 #include "Supermodel.h"
-#include "ppc.h"
+#include "CPU/Bus.h"
 
 // Typedefs that Supermodel no longer provides
 typedef unsigned int	UINT;
-
-// C++ should allow this...
-#define INLINE	inline
 
 // Model 3 context provides read/write handlers
 static class IBus	*Bus = NULL;	// pointer to Model 3 bus object (for access handlers)
@@ -118,12 +117,12 @@ static UINT32		ppc_field_xlat[256];
 
 
 
-#define BITMASK_0(n)	(UINT32)(((UINT64)1 << n) - 1)
-#define CRBIT(x)		((ppc.cr[x / 4] & (1 << (3 - (x % 4)))) ? 1 : 0)
+#define BITMASK_0(n)	(UINT32)(((UINT64)1 << (n)) - 1)
+#define CRBIT(x)		((ppc.cr[(x) / 4] & (1 << (3 - ((x) % 4)))) ? 1 : 0)
 #define _BIT(n)			(1 << (n))
 #define GET_ROTATE_MASK(mb,me)		(ppc_rotate_mask[mb][me])
-#define ADD_CA(r,a,b)		((UINT32)r < (UINT32)a)
-#define SUB_CA(r,a,b)		(!((UINT32)a < (UINT32)b))
+#define ADD_CA(r,a,b)		((UINT32)(r) < (UINT32)(a))
+#define SUB_CA(r,a,b)		(!((UINT32)(a) < (UINT32)(b)))
 #define ADD_OV(r,a,b)		((~((a) ^ (b)) & ((a) ^ (r))) & 0x80000000)
 #define SUB_OV(r,a,b)		(( ((a) ^ (b)) & ((a) ^ (r))) & 0x80000000)
 
@@ -155,8 +154,8 @@ static UINT32		ppc_field_xlat[256];
 #define TSR_ENW			0x80000000
 #define TSR_WIS			0x40000000
 
-#define BYTE_REVERSE16(x)	(((x >> 8) | (x << 8)) & 0xFFFF)
-#define BYTE_REVERSE32(x)	((x >> 24) | ((x << 8) & 0x00FF0000) | ((x >> 8) & 0x0000FF00) | (x << 24))
+#define BYTE_REVERSE16(x)	((((x) >> 8) | ((x) << 8)) & 0xFFFF)
+#define BYTE_REVERSE32(x)	(((x) >> 24) | (((x) << 8) & 0x00FF0000) | (((x) >> 8) & 0x0000FF00) | ((x) << 24))
 
 typedef union {
 	UINT64	id;
@@ -290,25 +289,25 @@ static UINT32 ppc_rotate_mask[32][32];
 
 static void ppc_change_pc(UINT32 newpc)
 {
-	UINT i;
+	UINT32 offset	= newpc - ppc.cur_fetch.start;		//  unsigned wrap around can happen, that's defined behavour 
+	UINT32 range	= ppc.cur_fetch.end - ppc.cur_fetch.start;
 
-	if (ppc.cur_fetch.start <= newpc && newpc <= ppc.cur_fetch.end)
+	if (offset <= range)
 	{
-		ppc.op = &ppc.cur_fetch.ptr[(newpc-ppc.cur_fetch.start)/4];
-//		ppc.op = (UINT32 *)((void *)ppc.cur_fetch.ptr + (UINT32)(newpc - ppc.cur_fetch.start));
+		ppc.op = &ppc.cur_fetch.ptr[offset / 4];
 		return;
 	}
 
-	for(i = 0; ppc.fetch[i].ptr != NULL; i++)
+	for(UINT32 i = 0; ppc.fetch[i].ptr != NULL; i++)
 	{
-		if (ppc.fetch[i].start <= newpc && newpc <= ppc.fetch[i].end)
-		{
-			ppc.cur_fetch.start = ppc.fetch[i].start;
-			ppc.cur_fetch.end = ppc.fetch[i].end;
-			ppc.cur_fetch.ptr = ppc.fetch[i].ptr;
+		offset	= newpc - ppc.fetch[i].start;
+		range	= ppc.fetch[i].end - ppc.fetch[i].start;
 
-//			ppc.op = (UINT32 *)((UINT32)ppc.cur_fetch.ptr + (UINT32)(newpc - ppc.cur_fetch.start));
-			ppc.op = &ppc.cur_fetch.ptr[(newpc-ppc.cur_fetch.start)/4];			
+		if (offset <= range)
+		{
+			ppc.cur_fetch = ppc.fetch[i];
+
+			ppc.op = &ppc.cur_fetch.ptr[offset / 4];
 			return;
 		}
 	}
@@ -318,42 +317,42 @@ static void ppc_change_pc(UINT32 newpc)
 	ppc.fatalError = true;
 }
 
-INLINE UINT8 READ8(UINT32 address)
+static inline UINT8 READ8(UINT32 address)
 {
 	return Bus->Read8(address);
 }
 
-INLINE UINT16 READ16(UINT32 address)
+static inline UINT16 READ16(UINT32 address)
 {
 	return Bus->Read16(address);
 }
 
-INLINE UINT32 READ32(UINT32 address)
+static inline UINT32 READ32(UINT32 address)
 {
 	return Bus->Read32(address);
 }
 
-INLINE UINT64 READ64(UINT32 address)
+static inline UINT64 READ64(UINT32 address)
 {
 	return Bus->Read64(address);
 }
 
-INLINE void WRITE8(UINT32 address, UINT8 data)
+static inline void WRITE8(UINT32 address, UINT8 data)
 {
 	Bus->Write8(address,data);
 }
 
-INLINE void WRITE16(UINT32 address, UINT16 data)
+static inline void WRITE16(UINT32 address, UINT16 data)
 {
 	Bus->Write16(address,data);
 }
 
-INLINE void WRITE32(UINT32 address, UINT32 data)
+static inline void WRITE32(UINT32 address, UINT32 data)
 {
 	Bus->Write32(address,data);
 }
 
-INLINE void WRITE64(UINT32 address, UINT64 data)
+static inline void WRITE64(UINT32 address, UINT64 data)
 {
 	Bus->Write64(address,data);
 }
@@ -362,7 +361,7 @@ INLINE void WRITE64(UINT32 address, UINT64 data)
 /*********************************************************************/
 
 
-INLINE void SET_CR0(INT32 rd)
+static inline void SET_CR0(INT32 rd)
 {
 	if( rd < 0 ) {
 		CR(0) = 0x8;
@@ -376,12 +375,12 @@ INLINE void SET_CR0(INT32 rd)
 		CR(0) |= 0x1;
 }
 
-INLINE void SET_CR1(void)
+static inline void SET_CR1(void)
 {
 	CR(1) = (ppc.fpscr >> 28) & 0xf;
 }
 
-INLINE void SET_ADD_OV(UINT32 rd, UINT32 ra, UINT32 rb)
+static inline void SET_ADD_OV(UINT32 rd, UINT32 ra, UINT32 rb)
 {
 	if( ADD_OV(rd, ra, rb) )
 		XER |= XER_SO | XER_OV;
@@ -389,7 +388,7 @@ INLINE void SET_ADD_OV(UINT32 rd, UINT32 ra, UINT32 rb)
 		XER &= ~XER_OV;
 }
 
-INLINE void SET_SUB_OV(UINT32 rd, UINT32 ra, UINT32 rb)
+static inline void SET_SUB_OV(UINT32 rd, UINT32 ra, UINT32 rb)
 {
 	if( SUB_OV(rd, ra, rb) )
 		XER |= XER_SO | XER_OV;
@@ -397,7 +396,7 @@ INLINE void SET_SUB_OV(UINT32 rd, UINT32 ra, UINT32 rb)
 		XER &= ~XER_OV;
 }
 
-INLINE void SET_ADD_CA(UINT32 rd, UINT32 ra, UINT32 rb)
+static inline void SET_ADD_CA(UINT32 rd, UINT32 ra, UINT32 rb)
 {
 	if( ADD_CA(rd, ra, rb) )
 		XER |= XER_CA;
@@ -405,7 +404,7 @@ INLINE void SET_ADD_CA(UINT32 rd, UINT32 ra, UINT32 rb)
 		XER &= ~XER_CA;
 }
 
-INLINE void SET_SUB_CA(UINT32 rd, UINT32 ra, UINT32 rb)
+static inline void SET_SUB_CA(UINT32 rd, UINT32 ra, UINT32 rb)
 {
 	if( SUB_CA(rd, ra, rb) )
 		XER |= XER_CA;
@@ -413,25 +412,23 @@ INLINE void SET_SUB_CA(UINT32 rd, UINT32 ra, UINT32 rb)
 		XER &= ~XER_CA;
 }
 
-INLINE UINT32 check_condition_code(UINT32 bo, UINT32 bi)
+static inline UINT32 check_condition_code(UINT32 bo, UINT32 bi)
 {
-	UINT32 ctr_ok;
-	UINT32 condition_ok;
 	UINT32 bo0 = (bo & 0x10) ? 1 : 0;
 	UINT32 bo1 = (bo & 0x08) ? 1 : 0;
 	UINT32 bo2 = (bo & 0x04) ? 1 : 0;
 	UINT32 bo3 = (bo & 0x02) ? 1 : 0;
 
-	if( bo2 == 0 )
+	if (bo2 == 0)
 		--CTR;
 
-	ctr_ok = bo2 | ((CTR != 0) ^ bo3);
-	condition_ok = bo0 | (CRBIT(bi) ^ (~bo1 & 0x1));
+	UINT32 ctr_ok = bo2 | ((CTR != 0) ^ bo3);
+	UINT32 condition_ok = bo0 | (CRBIT(bi) ^ (bo1 ^ 0x1));
 
-	return ctr_ok && condition_ok;
+	return ctr_ok & condition_ok;
 }
 
-INLINE UINT64 ppc_read_timebase(void)
+static inline UINT64 ppc_read_timebase(void)
 {
 	int cycles = ppc.tb_base_icount - ppc.icount;
 
@@ -439,7 +436,7 @@ INLINE UINT64 ppc_read_timebase(void)
 	return ppc.tb + (cycles / ppc.timer_ratio);
 }
 
-INLINE void ppc_write_timebase_l(UINT32 tbl)
+static inline void ppc_write_timebase_l(UINT32 tbl)
 {
 	UINT64 tb = ppc_read_timebase();
 
@@ -448,7 +445,7 @@ INLINE void ppc_write_timebase_l(UINT32 tbl)
 	ppc.tb = (tb&~0xffffffff)|tbl;
 }
 
-INLINE void ppc_write_timebase_h(UINT32 tbh)
+static inline void ppc_write_timebase_h(UINT32 tbh)
 {
 	UINT64 tb = ppc_read_timebase();
 
@@ -457,7 +454,7 @@ INLINE void ppc_write_timebase_h(UINT32 tbh)
 	ppc.tb = (tb&0xffffffff)|((UINT64)(tbh) << 32);
 }
 
-INLINE UINT32 read_decrementer(void)
+static inline UINT32 read_decrementer(void)
 {
 	int cycles = ppc.dec_base_icount - ppc.icount;
 
@@ -465,7 +462,7 @@ INLINE UINT32 read_decrementer(void)
 	return DEC - (cycles / ppc.timer_ratio);
 }
 
-INLINE void write_decrementer(UINT32 value)
+static inline void write_decrementer(UINT32 value)
 {
 	if (((value&0x80000000) && !(read_decrementer()&0x80000000)))
 	{
@@ -488,7 +485,7 @@ INLINE void write_decrementer(UINT32 value)
 
 /*********************************************************************/
 
-INLINE void ppc_set_spr(int spr, UINT32 value)
+static inline void ppc_set_spr(int spr, UINT32 value)
 {
 	switch (spr)
 	{
@@ -561,7 +558,7 @@ INLINE void ppc_set_spr(int spr, UINT32 value)
 	ppc.fatalError = true;
 }
 
-INLINE UINT32 ppc_get_spr(int spr)
+static inline UINT32 ppc_get_spr(int spr)
 {
 	switch(spr)
 	{
@@ -624,7 +621,7 @@ INLINE UINT32 ppc_get_spr(int spr)
 	return 0;
 }
 
-INLINE void ppc_set_msr(UINT32 value)
+static inline void ppc_set_msr(UINT32 value)
 {
 	if( value & (MSR_ILE | MSR_LE) )
 	{
@@ -638,12 +635,12 @@ INLINE void ppc_set_msr(UINT32 value)
 	ppc603_check_interrupts();
 }
 
-INLINE UINT32 ppc_get_msr(void)
+static inline UINT32 ppc_get_msr(void)
 {
 	return MSR;
 }
 
-INLINE void ppc_set_cr(UINT32 value)
+static inline void ppc_set_cr(UINT32 value)
 {
 	CR(0) = (value >> 28) & 0xf;
 	CR(1) = (value >> 24) & 0xf;
@@ -655,7 +652,7 @@ INLINE void ppc_set_cr(UINT32 value)
 	CR(7) = (value >> 0) & 0xf;
 }
 
-INLINE UINT32 ppc_get_cr(void)
+static inline UINT32 ppc_get_cr(void)
 {
 	return CR(0) << 28 | CR(1) << 24 | CR(2) << 20 | CR(3) << 16 | CR(4) << 12 | CR(5) << 8 | CR(6) << 4 | CR(7);
 }
@@ -719,10 +716,9 @@ void ppc_base_init(void)
 	/* Calculate rotate mask table */
 	for( i=0; i < 32; i++ ) {
 		for( j=0; j < 32; j++ ) {
-			UINT32 mask;
 			int mb = i;
 			int me = j;
-			mask = ((UINT32)0xFFFFFFFF >> mb) ^ ((me >= 31) ? 0 : ((UINT32)0xFFFFFFFF >> (me + 1)));
+			UINT32 mask = ((UINT32)0xFFFFFFFF >> mb) ^ ((me >= 31) ? 0 : ((UINT32)0xFFFFFFFF >> (me + 1)));
 			if( mb > me )
 				mask = ~mask;
 
@@ -835,15 +831,15 @@ void ppc_init(const PPC_CONFIG *config)
 	
 	switch (config->bus_frequency)
 	{
-		case BUS_FREQUENCY_16MHZ: ppc.cycles_per_second = multiplier * 16000000; break;
-		case BUS_FREQUENCY_20MHZ: ppc.cycles_per_second = multiplier * 20000000; break;
-		case BUS_FREQUENCY_25MHZ: ppc.cycles_per_second = multiplier * 25000000; break;
-		case BUS_FREQUENCY_33MHZ: ppc.cycles_per_second = multiplier * 33000000; break;
-		case BUS_FREQUENCY_40MHZ: ppc.cycles_per_second = multiplier * 40000000; break;
-		case BUS_FREQUENCY_50MHZ: ppc.cycles_per_second = multiplier * 50000000; break;
-		case BUS_FREQUENCY_60MHZ: ppc.cycles_per_second = multiplier * 60000000; break;
-		case BUS_FREQUENCY_66MHZ: ppc.cycles_per_second = multiplier * 66000000; break;
-		case BUS_FREQUENCY_75MHZ: ppc.cycles_per_second = multiplier * 75000000; break;
+		case BUS_FREQUENCY_16MHZ: ppc.cycles_per_second = (int)(multiplier * 16000000); break;
+		case BUS_FREQUENCY_20MHZ: ppc.cycles_per_second = (int)(multiplier * 20000000); break;
+		case BUS_FREQUENCY_25MHZ: ppc.cycles_per_second = (int)(multiplier * 25000000); break;
+		case BUS_FREQUENCY_33MHZ: ppc.cycles_per_second = (int)(multiplier * 33000000); break;
+		case BUS_FREQUENCY_40MHZ: ppc.cycles_per_second = (int)(multiplier * 40000000); break;
+		case BUS_FREQUENCY_50MHZ: ppc.cycles_per_second = (int)(multiplier * 50000000); break;
+		case BUS_FREQUENCY_60MHZ: ppc.cycles_per_second = (int)(multiplier * 60000000); break;
+		case BUS_FREQUENCY_66MHZ: ppc.cycles_per_second = (int)(multiplier * 66000000); break;
+		case BUS_FREQUENCY_75MHZ: ppc.cycles_per_second = (int)(multiplier * 75000000); break;
 	}
 	
 	switch(config->pvr)
@@ -869,9 +865,15 @@ void ppc_shutdown(void)
 
 void ppc_set_irq_line(int irqline)
 {
-	ppc.interrupt_pending |= 0x1;
-	
-	ppc603_check_interrupts();
+	if (irqline)
+	{
+		ppc.interrupt_pending |= 0x1;
+		ppc603_check_interrupts();
+	}
+	else
+	{
+		ppc.interrupt_pending &= ~0x1;
+	}
 }
 
 UINT32 ppc_get_pc(void)
@@ -995,7 +997,7 @@ void ppc_save_state(CBlockFile *SaveState)
 
 void ppc_load_state(CBlockFile *SaveState)
 {	
-	if (OKAY != SaveState->FindBlock("PowerPC"))
+	if (Result::OKAY != SaveState->FindBlock("PowerPC"))
 	{
 		ErrorLog("Unable to load PowerPC state. Save state file is corrupt.");
 		return;

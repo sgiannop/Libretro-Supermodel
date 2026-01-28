@@ -23,9 +23,11 @@ void m68k_op_dbf_16(void)
 		REG_PC -= 2;
 		m68ki_trace_t0();			   /* auto-disable (see m68kcpu.h) */
 		m68ki_branch_16(offset);
+		USE_CYCLES(CYC_DBCC_F_NOEXP);
 		return;
 	}
 	REG_PC += 2;
+	USE_CYCLES(CYC_DBCC_F_EXP);
 }
 
 
@@ -4139,7 +4141,7 @@ void m68k_op_eori_32_al(void)
 
 void m68k_op_eori_16_toc(void)
 {
-	m68ki_set_ccr(m68ki_get_ccr() ^ OPER_I_16());
+	m68ki_set_ccr(m68ki_get_ccr() ^ OPER_I_8());
 }
 
 
@@ -8667,7 +8669,8 @@ void m68k_op_move_32_pd_d(void)
 	uint res = DY;
 	uint ea = EA_AX_PD_32();
 
-	m68ki_write_32(ea, res);
+	m68ki_write_16(ea+2, res & 0xFFFF );
+	m68ki_write_16(ea, (res >> 16) & 0xFFFF );
 
 	FLAG_N = NFLAG_32(res);
 	FLAG_Z = res;
@@ -8681,7 +8684,8 @@ void m68k_op_move_32_pd_a(void)
 	uint res = AY;
 	uint ea = EA_AX_PD_32();
 
-	m68ki_write_32(ea, res);
+	m68ki_write_16(ea+2, res & 0xFFFF );
+	m68ki_write_16(ea, (res >> 16) & 0xFFFF );
 
 	FLAG_N = NFLAG_32(res);
 	FLAG_Z = res;
@@ -8695,7 +8699,8 @@ void m68k_op_move_32_pd_ai(void)
 	uint res = OPER_AY_AI_32();
 	uint ea = EA_AX_PD_32();
 
-	m68ki_write_32(ea, res);
+	m68ki_write_16(ea+2, res & 0xFFFF );
+	m68ki_write_16(ea, (res >> 16) & 0xFFFF );
 
 	FLAG_N = NFLAG_32(res);
 	FLAG_Z = res;
@@ -8709,7 +8714,8 @@ void m68k_op_move_32_pd_pi(void)
 	uint res = OPER_AY_PI_32();
 	uint ea = EA_AX_PD_32();
 
-	m68ki_write_32(ea, res);
+	m68ki_write_16(ea+2, res & 0xFFFF );
+	m68ki_write_16(ea, (res >> 16) & 0xFFFF );
 
 	FLAG_N = NFLAG_32(res);
 	FLAG_Z = res;
@@ -8723,7 +8729,8 @@ void m68k_op_move_32_pd_pd(void)
 	uint res = OPER_AY_PD_32();
 	uint ea = EA_AX_PD_32();
 
-	m68ki_write_32(ea, res);
+	m68ki_write_16(ea+2, res & 0xFFFF );
+	m68ki_write_16(ea, (res >> 16) & 0xFFFF );
 
 	FLAG_N = NFLAG_32(res);
 	FLAG_Z = res;
@@ -8737,7 +8744,8 @@ void m68k_op_move_32_pd_di(void)
 	uint res = OPER_AY_DI_32();
 	uint ea = EA_AX_PD_32();
 
-	m68ki_write_32(ea, res);
+	m68ki_write_16(ea+2, res & 0xFFFF );
+	m68ki_write_16(ea, (res >> 16) & 0xFFFF );
 
 	FLAG_N = NFLAG_32(res);
 	FLAG_Z = res;
@@ -8751,7 +8759,8 @@ void m68k_op_move_32_pd_ix(void)
 	uint res = OPER_AY_IX_32();
 	uint ea = EA_AX_PD_32();
 
-	m68ki_write_32(ea, res);
+	m68ki_write_16(ea+2, res & 0xFFFF );
+	m68ki_write_16(ea, (res >> 16) & 0xFFFF );
 
 	FLAG_N = NFLAG_32(res);
 	FLAG_Z = res;
@@ -8765,7 +8774,8 @@ void m68k_op_move_32_pd_aw(void)
 	uint res = OPER_AW_32();
 	uint ea = EA_AX_PD_32();
 
-	m68ki_write_32(ea, res);
+	m68ki_write_16(ea+2, res & 0xFFFF );
+	m68ki_write_16(ea, (res >> 16) & 0xFFFF );
 
 	FLAG_N = NFLAG_32(res);
 	FLAG_Z = res;
@@ -8779,7 +8789,8 @@ void m68k_op_move_32_pd_al(void)
 	uint res = OPER_AL_32();
 	uint ea = EA_AX_PD_32();
 
-	m68ki_write_32(ea, res);
+	m68ki_write_16(ea+2, res & 0xFFFF );
+	m68ki_write_16(ea, (res >> 16) & 0xFFFF );
 
 	FLAG_N = NFLAG_32(res);
 	FLAG_Z = res;
@@ -8793,7 +8804,8 @@ void m68k_op_move_32_pd_pcdi(void)
 	uint res = OPER_PCDI_32();
 	uint ea = EA_AX_PD_32();
 
-	m68ki_write_32(ea, res);
+	m68ki_write_16(ea+2, res & 0xFFFF );
+	m68ki_write_16(ea, (res >> 16) & 0xFFFF );
 
 	FLAG_N = NFLAG_32(res);
 	FLAG_Z = res;
@@ -8807,7 +8819,8 @@ void m68k_op_move_32_pd_pcix(void)
 	uint res = OPER_PCIX_32();
 	uint ea = EA_AX_PD_32();
 
-	m68ki_write_32(ea, res);
+	m68ki_write_16(ea+2, res & 0xFFFF );
+	m68ki_write_16(ea, (res >> 16) & 0xFFFF );
 
 	FLAG_N = NFLAG_32(res);
 	FLAG_Z = res;
@@ -8821,7 +8834,8 @@ void m68k_op_move_32_pd_i(void)
 	uint res = OPER_I_32();
 	uint ea = EA_AX_PD_32();
 
-	m68ki_write_32(ea, res);
+	m68ki_write_16(ea+2, res & 0xFFFF );
+	m68ki_write_16(ea, (res >> 16) & 0xFFFF );
 
 	FLAG_N = NFLAG_32(res);
 	FLAG_Z = res;
@@ -10143,6 +10157,7 @@ void m68k_op_movec_32_rc(void)
 				REG_DFC = REG_DA[(word2 >> 12) & 15] & 7;
 				return;
 			case 0x002:			   /* CACR */
+				/* Only EC020 and later have CACR */
 				if(CPU_TYPE_IS_EC020_PLUS(CPU_TYPE))
 				{
 					REG_CACR = REG_DA[(word2 >> 12) & 15];
@@ -10329,7 +10344,8 @@ void m68k_op_movem_32_re_pd(void)
 		if(register_list & (1 << i))
 		{
 			ea -= 4;
-			m68ki_write_32(ea, REG_DA[15-i]);
+			m68ki_write_16(ea+2, REG_DA[15-i] & 0xFFFF );
+			m68ki_write_16(ea, (REG_DA[15-i] >> 16) & 0xFFFF );
 			count++;
 		}
 	AY = ea;

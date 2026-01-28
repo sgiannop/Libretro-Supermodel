@@ -18,7 +18,7 @@
  ** You should have received a copy of the GNU General Public License along
  ** with Supermodel.  If not, see <http://www.gnu.org/licenses/>.
  **/
- 
+
 /*
  * WinOutputs.cpp
  */
@@ -57,6 +57,7 @@ CWinOutputs::~CWinOutputs()
 	// Broadcast a shutdown message
 	if (m_hwnd)
 		PostMessage(HWND_BROADCAST, m_onStop, (WPARAM)m_hwnd, 0);
+	DeleteWindowClass();
 }
 
 bool CWinOutputs::Initialize()
@@ -107,10 +108,10 @@ void CWinOutputs::Attached()
 void CWinOutputs::SendOutput(EOutputs output, UINT8 prevValue, UINT8 value)
 {
 	//printf("LAMP OUTPUT %s = %u -> %u\n", GetOutputName(output), prevValue, value);
-	
+
 	// Loop through all registered clients and send them new output value
 	LPARAM param = (LPARAM)output + 1;
-	for (vector<RegisteredClient>::iterator it = m_clients.begin(), end = m_clients.end(); it != end; it++)
+	for (vector<RegisteredClient>::iterator it = m_clients.begin(), end = m_clients.end(); it != end; ++it)
 		PostMessage(it->hwnd, m_updateState, param, value);
 }
 
@@ -129,7 +130,7 @@ bool CWinOutputs::CreateWindowClass()
 		return true;
 
 	// Setup description of window class
-	WNDCLASS wc = { 0 };
+	WNDCLASS wc{};
 	wc.lpszClassName = OUTPUT_WINDOW_CLASS;
 	wc.hInstance = GetModuleHandle(NULL);
 	wc.lpfnWndProc = OutputWindowProcCallback;
@@ -140,10 +141,22 @@ bool CWinOutputs::CreateWindowClass()
 		s_createdClass = true;
 		return true;
 	}
-	
+
 	return false;
 }
+bool CWinOutputs::DeleteWindowClass()
+{
+	if (!s_createdClass)
+		return true;
 
+	// Register class
+	if (UnregisterClass(OUTPUT_WINDOW_CLASS, GetModuleHandle(NULL))) {
+		s_createdClass = false;
+		return true;
+	}
+
+	return false;
+}
 bool CWinOutputs::AllocateMessageId(UINT &regId, LPCSTR str)
 {
 	regId = RegisterWindowMessage(str);
@@ -165,7 +178,7 @@ LRESULT CWinOutputs::OutputWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
 LRESULT CWinOutputs::RegisterClient(HWND hwnd, LPARAM id)
 {
 	// Check that given client is not already registered
-	for (vector<RegisteredClient>::iterator it = m_clients.begin(), end = m_clients.end(); it != end; it++)
+	for (vector<RegisteredClient>::iterator it = m_clients.begin(), end = m_clients.end(); it != end; ++it)
 	{
 		if (it->id == id)
 		{
@@ -211,7 +224,7 @@ LRESULT CWinOutputs::UnregisterClient(HWND hwnd, LPARAM id)
 			found = true;
 		}
 		else
-			it++;
+			++it;
 	}
 
 	// Return error if no matches found
@@ -226,9 +239,9 @@ LRESULT CWinOutputs::SendIdString(HWND hwnd, LPARAM id)
 		name = GetGame().name;
 	else
 		name = MapIdToName(id) ? MapIdToName(id) : "";
-	
+
 	// Allocate memory for message
-	int dataLen = sizeof(CopyDataIdString) + name.length();
+	DWORD dataLen = sizeof(CopyDataIdString) + (DWORD)name.length();
 	CopyDataIdString *data = (CopyDataIdString*)new(nothrow) UINT8[dataLen];
 	if (!data)
 		return 1;

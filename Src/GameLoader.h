@@ -31,13 +31,14 @@ private:
     std::string region_name;
     size_t stride;
     size_t chunk_size;
-    bool byte_swap;
+    std::string byte_layout;
+    bool required;
     std::vector<File::ptr_t> files;
     static ptr_t Create(const GameLoader &loader, const Util::Config::Node &region_node);
     bool AttribsMatch(const ptr_t &other) const;
     bool FindFileIndexByOffset(size_t *idx, uint32_t offset) const;
   };
-  
+
   // Game information from XML
   std::map<std::string, Game> m_game_info_by_game;
 
@@ -45,18 +46,18 @@ private:
   // sets do not inherit parent patches, which may complicate merging.
   typedef std::map<std::string, std::vector<ROM::BigEndianPatch>> PatchesByRegion_t;
   std::map<std::string, PatchesByRegion_t> m_patches_by_game;
-  
+
   // Parsed XML
   typedef std::map<std::string, Region::ptr_t> RegionsByName_t;
   std::map<std::string, RegionsByName_t> m_regions_by_game;         // all games as defined in XML
   std::map<std::string, RegionsByName_t> m_regions_by_merged_game;  // only child sets merged w/ parents
   std::string m_xml_filename;
-  
+
   // Single compressed file inside of a zip archive
   struct ZippedFile
   {
     unzFile zf = nullptr;
-    std::string zipfilename;  // zip archive 
+    std::string zipfilename;  // zip archive
     std::string filename;     // file inside the zip archive
     size_t uncompressed_size = 0;
     uint32_t crc32 = 0;
@@ -98,8 +99,6 @@ private:
   void ChooseGameInZipArchive(std::string *chosen_game, bool *missing_parent_roms, const ZipArchive &zip, const std::string &zipfilename) const;
   bool LoadRegion(ROM *buffer, const GameLoader::Region::ptr_t &region, const ZipArchive &zip) const;
   bool LoadROMs(ROMSet *rom_set, const std::string &game_name, const ZipArchive &zip) const;
-  std::string ChooseGame(const std::set<std::string> &games_found, const std::string &zipfilename) const;
-  static bool CompareFilesByName(const File::ptr_t &a,const File::ptr_t &b);
 
 public:
   GameLoader(const std::string &xml_file);

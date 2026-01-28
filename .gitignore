@@ -5,6 +5,10 @@
 *.dll
 *.dylib
 *.lib
+*.zip
+*.log
+*.info
+*.nv
 *.pdb
 *.exp
 *.manifest

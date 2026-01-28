@@ -26,6 +26,8 @@
  * class.
  */
 
+#include "BlockFile.h"
+
 #include <cstdio>
 #include <cstring>
 #include <cstdint>
@@ -43,7 +45,7 @@ void CBlockFile::ReadString(std::string *str, uint32_t length)
   str->clear();
   //TODO: use fstream to get rid of this ugly hack
   bool keep_loading = true;
-  for (size_t i = 0; i < length; i++)
+  for (uint32_t i = 0; i < length; i++)
   {
     char c;
     fread(&c, sizeof(char), 1, fp);
@@ -188,10 +190,10 @@ void CBlockFile::NewBlock(const std::string &name, const std::string &comment)
     WriteBlockHeader(name, comment);
 }
 
-bool CBlockFile::FindBlock(const std::string &name)
+Result CBlockFile::FindBlock(const std::string &name)
 {
   if (mode != 'r')
-    return FAIL;
+    return Result::FAIL;
     
   fseek(fp, 0, SEEK_SET);
   
@@ -215,7 +217,7 @@ bool CBlockFile::FindBlock(const std::string &name)
     {
       fseek(fp, blockStartPos + 12 + name_length + comment_length, SEEK_SET); // move to beginning of data
       dataStartPos = ftell(fp);
-      return OKAY;
+      return Result::OKAY;
     }
     
     // Move to next block
@@ -225,24 +227,24 @@ bool CBlockFile::FindBlock(const std::string &name)
       break;
   }
   
-  return FAIL;
+  return Result::FAIL;
 }
 
-bool CBlockFile::Create(const std::string &file, const std::string &headerName, const std::string &comment)
+Result CBlockFile::Create(const std::string &file, const std::string &headerName, const std::string &comment)
 {
   fp = fopen(file.c_str(), "wb");
   if (NULL == fp)
-    return FAIL;
+    return Result::FAIL;
   mode = 'w';
   WriteBlockHeader(headerName, comment);
-  return OKAY;
+  return Result::OKAY;
 }
   
-bool CBlockFile::Load(const std::string &file)
+Result CBlockFile::Load(const std::string &file)
 {
   fp = fopen(file.c_str(), "rb");
   if (NULL == fp)
-    return FAIL;
+    return Result::FAIL;
   mode = 'r';
   
   // TODO: is this a valid block file?
@@ -252,7 +254,7 @@ bool CBlockFile::Load(const std::string &file)
   fileSize = ftell(fp);
   fseek(fp, 0, SEEK_SET);
   
-  return OKAY;
+  return Result::OKAY;
 }
   
 void CBlockFile::Close(void)
@@ -269,10 +271,10 @@ CBlockFile::CBlockFile(void)
   mode = 0;   // neither reading nor writing (do nothing)
 }
 
-CBlockFile::~CBlockFile(void)
-{
-  if (fp != NULL) // in case user forgot
-    fclose(fp);
-  fp = NULL;
-  mode = 0;
-}
+// CBlockFile::~CBlockFile(void)
+// {
+//   if (fp != NULL) // in case user forgot
+//     fclose(fp);
+//   fp = NULL;
+//   mode = 0;
+// }

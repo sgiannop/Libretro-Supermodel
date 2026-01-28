@@ -6,7 +6,7 @@
  ** This file is part of Supermodel.
  **
  ** Supermodel is free software: you can redistribute it and/or modify it under
- ** the terms of the GNU General Public License as published by the Free 
+ ** the terms of the GNU General Public License as published by the Free
  ** Software Foundation, either version 3 of the License, or (at your option)
  ** any later version.
  **
@@ -18,7 +18,7 @@
  ** You should have received a copy of the GNU General Public License along
  ** with Supermodel.  If not, see <http://www.gnu.org/licenses/>.
  **/
- 
+
 /*
  * PPCDisasm.cpp
  *
@@ -43,7 +43,7 @@
 
 /******************************************************************************
  Instruction Descriptions
- 
+
  The disassembler is primarily table-driven making it easily modifiable.
 ******************************************************************************/
 
@@ -147,8 +147,8 @@ enum
     F_BCx,          // BO, BI, target_addr  used only by BCx
     F_RT_RA_0_SIMM, // rT, rA|0, SIMM       rA|0 means if rA == 0, print 0
     F_ADDIS,        // rT, rA, SIMM (printed as unsigned)   only used by ADDIS
-    F_RT_RA_SIMM,   // rT, rA, SIMM         
-    F_RA_RT_UIMM,   // rA, rT, UIMM         
+    F_RT_RA_SIMM,   // rT, rA, SIMM
+    F_RA_RT_UIMM,   // rA, rT, UIMM
     F_CMP_SIMM,     // crfD, L, A, SIMM
     F_CMP_UIMM,     // crfD, L, A, UIMM
     F_RT_RA_0_RB,   // rT, rA|0, rB
@@ -517,7 +517,7 @@ static void SPR(char *dest, unsigned spr_field)
     case 982:   strcat(dest, "rpa");    break;
     case 1010:  strcat(dest, "iabr");   break;
 
-    default:    sprintf(dest, "%s%d", dest, spr);
+    default:    strcat(dest, std::to_string(spr).c_str());
                 break;
     }
 }
@@ -575,11 +575,11 @@ static uint32_t Mask(unsigned mb, unsigned me)
  * Perform checks on the instruction as required by the flags. Returns 1 if
  * the instruction failed.
  */
-static bool Check(uint32_t op, unsigned flags)
+static Result Check(uint32_t op, unsigned flags)
 {
     unsigned  nb, rt, ra;
 
-    if (!flags) return OKAY;  // nothing to check for!
+    if (!flags) return Result::OKAY;  // nothing to check for!
 
     rt = G_RT(op);
     ra = G_RA(op);
@@ -587,13 +587,13 @@ static bool Check(uint32_t op, unsigned flags)
     if (flags & FL_CHECK_RA_RT) // invalid if rA==0 or rA==rT
     {
         if ((G_RA(op) == 0) || (G_RA(op) == G_RT(op)))
-            return FAIL;
+            return Result::FAIL;
     }
 
     if (flags & FL_CHECK_RA)    // invalid if rA==0
     {
         if (G_RA(op) == 0)
-            return FAIL;
+            return Result::FAIL;
     }
 
     if (flags & FL_CHECK_LSWI)
@@ -605,11 +605,11 @@ static bool Check(uint32_t op, unsigned flags)
 
         nb = G_NB(op);
 
-        if (ra >= rt && ra <= (rt + nb - 1))    return FAIL;
+        if (ra >= rt && ra <= (rt + nb - 1))    return Result::FAIL;
         if ((rt + nb - 1) > 31) // register wrap-around!
         {
             if (ra < ((rt + nb - 1) - 31))
-                return FAIL;
+                return Result::FAIL;
         }
     }
 
@@ -624,10 +624,10 @@ static bool Check(uint32_t op, unsigned flags)
          */
 
         if (rt == ra || rt == G_RB(op) || ((rt == 0) && (ra == 0)))
-            return FAIL;
+            return Result::FAIL;
     }
 
-    return OKAY;  // passed checks
+    return Result::OKAY;  // passed checks
 }
 
 /*
@@ -655,7 +655,7 @@ static bool Simplified(uint32_t op, uint32_t vpc, char *signed16, char *mnem, ch
             sprintf(oprs, "r%d,r%d", G_RA(op), G_RT(op));
         }
         else
-            return 0;
+            return false;
     }
     else if ((op & ~(M_RT|M_RA|M_RB|M_RC)) == (D_OP(31)|D_XO(124)))
     {
@@ -666,7 +666,7 @@ static bool Simplified(uint32_t op, uint32_t vpc, char *signed16, char *mnem, ch
             sprintf(oprs, "r%d,r%d", G_RA(op), G_RT(op));
         }
         else
-            return 0;
+            return false;
     }
     else if ((op & ~(M_RT|M_RA|M_SIMM)) == D_OP(14))
     {
@@ -676,7 +676,7 @@ static bool Simplified(uint32_t op, uint32_t vpc, char *signed16, char *mnem, ch
             sprintf(oprs, "r%d,0x%08X", G_RT(op), value);
         }
         else
-            return 0;
+            return false;
     }
     else if ((op & ~(M_RT|M_RA|M_SIMM)) == D_OP(15))
     {
@@ -705,7 +705,7 @@ static bool Simplified(uint32_t op, uint32_t vpc, char *signed16, char *mnem, ch
     {
         strcat(mnem, "xori");   // xoris rA,rT,UIMM -> xori rA,rT,UIMM<<16
         sprintf(oprs, "r%d,r%d,0x%08X", G_RA(op), G_RT(op), G_UIMM(op) << 16);
-    }        
+    }
     else if ((op & ~(M_RT|M_RA|M_SH|M_MB|M_ME|M_RC)) == D_OP(20))
     {
         value = Mask(G_MB(op), G_ME(op));
@@ -757,7 +757,7 @@ static bool Simplified(uint32_t op, uint32_t vpc, char *signed16, char *mnem, ch
             strcat(mnem, "bt");
             break;
         default:
-            return 0;
+            return false;
         }
 
         if (op & M_LK)  strcat(mnem, "l");
@@ -780,14 +780,14 @@ static bool Simplified(uint32_t op, uint32_t vpc, char *signed16, char *mnem, ch
     sprintf(oprs, "r%d,r%d,r%d", G_RT(op), G_RB(op), G_RA(op));
     }
     else
-        return 0;   // no match
-  return 1;
+        return false;   // no match
+  return true;
 }
 
 /*
  * DisassemblePowerPC(op, vpc, mnem, oprs, simplify):
  *
- * Disassembles one PowerPC 603e instruction. 
+ * Disassembles one PowerPC 603e instruction.
  *
  * A non-zero return code indicates that the instruction could not be
  * recognized or that the operands to an instruction were invalid. To
@@ -807,8 +807,8 @@ static bool Simplified(uint32_t op, uint32_t vpc, char *signed16, char *mnem, ch
  * Returns:
  *      Zero if successful, non-zero if the instruction was unrecognized or
  *      had an invalid form (see note above in function description.)
- */ 
-bool DisassemblePowerPC(uint32_t op, uint32_t vpc, char *mnem, char *oprs,
+ */
+Result DisassemblePowerPC(uint32_t op, uint32_t vpc, char *mnem, char *oprs,
                         bool simplify)
 {
     char    signed16[12];
@@ -821,7 +821,7 @@ bool DisassemblePowerPC(uint32_t op, uint32_t vpc, char *mnem, char *oprs,
      * Decode signed 16-bit fields (SIMM and d) to spare us the work later
      */
 
-    DecodeSigned16(signed16, op, 0);
+    DecodeSigned16(signed16, op, false);
 
     /*
      * Try simplified forms first, then real instructions
@@ -830,7 +830,7 @@ bool DisassemblePowerPC(uint32_t op, uint32_t vpc, char *mnem, char *oprs,
     if (simplify)
     {
         if (Simplified(op, vpc, signed16, mnem, oprs))
-            return OKAY;
+            return Result::OKAY;
     }
 
     /*
@@ -1053,7 +1053,8 @@ bool DisassemblePowerPC(uint32_t op, uint32_t vpc, char *mnem, char *oprs,
 
             case F_MTSPR:
                 SPR(oprs, G_SPR(op));
-                sprintf(oprs, "%s,r%d", oprs, G_RT(op));
+                strcat(oprs, ",r");
+                strcat(oprs, std::to_string(G_RT(op)).c_str());
                 break;
 
             case F_MTSR:
@@ -1097,13 +1098,13 @@ bool DisassemblePowerPC(uint32_t op, uint32_t vpc, char *mnem, char *oprs,
         }
     }
 
-    return FAIL;  // no match found
+    return Result::FAIL;  // no match found
 }
 
 
 /******************************************************************************
  Standalone Disassembler
- 
+
  Define STANDALONE to build a command line-driven PowerPC disassembler.
 ******************************************************************************/
 
@@ -1134,8 +1135,8 @@ int main(int argc, char **argv)
     char      mnem[16], oprs[48];
     FILE      *fp;
     uint8_t   *buffer;
-    unsigned  i, fsize, start = 0, len, org, file = 0;
-    uint32_t    op;
+    unsigned  fsize, start = 0, len, org, file = 0;
+    uint32_t  op;
     bool      len_specified = 0, org_specified = 0, little = 0, simple = 1;
     char      *c;
 
@@ -1143,7 +1144,7 @@ int main(int argc, char **argv)
     if (argc <= 1)
         PrintUsage();
 
-    for (i = 1; i < argc; i++)
+    for (int i = 1; i < argc; i++)
     {
         if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "-?"))
             PrintUsage();
@@ -1194,7 +1195,7 @@ int main(int argc, char **argv)
         fprintf(stderr, "ppcd: no input file specified\n");
         exit(1);
     }
-            
+
     /*
      * Load file
      */
@@ -1209,7 +1210,7 @@ int main(int argc, char **argv)
     rewind(fp);
 
     if ((buffer = (uint8_t *) calloc(fsize, sizeof(uint8_t))) == NULL)
-    {              
+    {
         fprintf(stderr, "ppcd: not enough memory to load input file: %s, %lu bytes\n", argv[file], (unsigned long) fsize);
         fclose(fp);
         exit(1);
@@ -1229,7 +1230,7 @@ int main(int argc, char **argv)
      * Disassemble!
      */
 
-    for (i = start; i < fsize && i < (start + len); i += 4, org += 4)
+    for (unsigned i = start; i < fsize && i < (start + len); i += 4, org += 4)
     {
         if (!little)
             op = (buffer[i] << 24) | (buffer[i + 1] << 16) |
@@ -1238,7 +1239,7 @@ int main(int argc, char **argv)
             op = (buffer[i + 3] << 24) | (buffer[i + 2] << 16) |
                  (buffer[i + 1] << 8) | buffer[i + 0];
 
-        if (DisassemblePowerPC(op, org, mnem, oprs, simple))
+        if (Result::OKAY == DisassemblePowerPC(op, org, mnem, oprs, simple))
         {
             if (mnem[0] != '\0')    // invalid form
                 printf("0x%08X: 0x%08X\t%s*\t%s\n", org, op, mnem, oprs);

@@ -1,0 +1,11 @@
+{
+    "files.exclude": {
+        "**/*.o": true,
+        "**/*.log": true,
+        "**/*.info": true,
+        "**/*.nv": true,
+        "**/*.zip": true,
+        "**/*.so/**": true
+        
+    }
+}

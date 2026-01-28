@@ -2616,7 +2616,7 @@ void m68k_op_ori_32_al(void)
 
 void m68k_op_ori_16_toc(void)
 {
-	m68ki_set_ccr(m68ki_get_ccr() | OPER_I_16());
+	m68ki_set_ccr(m68ki_get_ccr() | OPER_I_8());
 }
 
 
@@ -3169,7 +3169,7 @@ void m68k_op_rol_32_r(void)
 
 		*r_dst = res;
 
-		FLAG_C = (src >> (32 - shift)) << 8;
+		FLAG_C = (src >> ((32 - shift) & 0x1f)) << 8;
 		FLAG_N = NFLAG_32(res);
 		FLAG_Z = res;
 		FLAG_V = VFLAG_CLEAR;
@@ -3996,7 +3996,7 @@ void m68k_op_rte_32(void)
 			}
 			CPU_INSTR_MODE = INSTRUCTION_YES;
 			CPU_RUN_MODE = RUN_MODE_NORMAL;
-			/* Not handling bus fault (9) */
+			/* Not handling other exception types (9) */
 			m68ki_exception_format_error();
 			return;
 		}
@@ -4078,25 +4078,19 @@ void m68k_op_sbcd_8_rr(void)
 	uint dst = *r_dst;
 	uint res = LOW_NIBBLE(dst) - LOW_NIBBLE(src) - XFLAG_AS_1();
 
-//	FLAG_V = ~res; /* Undefined V behavior */
-	FLAG_V = VFLAG_CLEAR;	/* Undefined in Motorola's M68000PM/AD rev.1 and safer to assume cleared. */
+	FLAG_V = ~res; /* Undefined V behavior */
 
 	if(res > 9)
 		res -= 6;
 	res += HIGH_NIBBLE(dst) - HIGH_NIBBLE(src);
-	if(res > 0x99)
-	{
+	FLAG_X = FLAG_C = (res > 0x99) << 8;
+	if(FLAG_C)
 		res += 0xa0;
-		FLAG_X = FLAG_C = CFLAG_SET;
-		FLAG_N = NFLAG_SET;	/* Undefined in Motorola's M68000PM/AD rev.1 and safer to follow carry. */
-	}
-	else
-		FLAG_N = FLAG_X = FLAG_C = 0;
 
 	res = MASK_OUT_ABOVE_8(res);
 
-//	FLAG_V &= res; /* Undefined V behavior part II */
-//	FLAG_N = NFLAG_8(res); /* Undefined N behavior */
+	FLAG_V &= res; /* Undefined V behavior part II */
+	FLAG_N = NFLAG_8(res); /* Undefined N behavior */
 	FLAG_Z |= res;
 
 	*r_dst = MASK_OUT_BELOW_8(*r_dst) | res;
@@ -4110,25 +4104,19 @@ void m68k_op_sbcd_8_mm_ax7(void)
 	uint dst = m68ki_read_8(ea);
 	uint res = LOW_NIBBLE(dst) - LOW_NIBBLE(src) - XFLAG_AS_1();
 
-//	FLAG_V = ~res; /* Undefined V behavior */
-	FLAG_V = VFLAG_CLEAR;	/* Undefined in Motorola's M68000PM/AD rev.1 and safer to return zero. */
+	FLAG_V = ~res; /* Undefined V behavior */
 
 	if(res > 9)
 		res -= 6;
 	res += HIGH_NIBBLE(dst) - HIGH_NIBBLE(src);
-	if(res > 0x99)
-	{
+	FLAG_X = FLAG_C = (res > 0x99) << 8;
+	if(FLAG_C)
 		res += 0xa0;
-		FLAG_X = FLAG_C = CFLAG_SET;
-		FLAG_N = NFLAG_SET;	/* Undefined in Motorola's M68000PM/AD rev.1 and safer to follow carry. */
-	}
-	else
-		FLAG_N = FLAG_X = FLAG_C = 0;
 
 	res = MASK_OUT_ABOVE_8(res);
 
-//	FLAG_V &= res; /* Undefined V behavior part II */
-//	FLAG_N = NFLAG_8(res); /* Undefined N behavior */
+	FLAG_V &= res; /* Undefined V behavior part II */
+	FLAG_N = NFLAG_8(res); /* Undefined N behavior */
 	FLAG_Z |= res;
 
 	m68ki_write_8(ea, res);
@@ -4142,25 +4130,19 @@ void m68k_op_sbcd_8_mm_ay7(void)
 	uint dst = m68ki_read_8(ea);
 	uint res = LOW_NIBBLE(dst) - LOW_NIBBLE(src) - XFLAG_AS_1();
 
-//	FLAG_V = ~res; /* Undefined V behavior */
-	FLAG_V = VFLAG_CLEAR;	/* Undefined in Motorola's M68000PM/AD rev.1 and safer to return zero. */
+	FLAG_V = ~res; /* Undefined V behavior */
 
 	if(res > 9)
 		res -= 6;
 	res += HIGH_NIBBLE(dst) - HIGH_NIBBLE(src);
-	if(res > 0x99)
-	{
+	FLAG_X = FLAG_C = (res > 0x99) << 8;
+	if(FLAG_C)
 		res += 0xa0;
-		FLAG_X = FLAG_C = CFLAG_SET;
-		FLAG_N = NFLAG_SET;	/* Undefined in Motorola's M68000PM/AD rev.1 and safer to follow carry. */
-	}
-	else
-		FLAG_N = FLAG_X = FLAG_C = 0;
 
 	res = MASK_OUT_ABOVE_8(res);
 
-//	FLAG_V &= res; /* Undefined V behavior part II */
-//	FLAG_N = NFLAG_8(res); /* Undefined N behavior */
+	FLAG_V &= res; /* Undefined V behavior part II */
+	FLAG_N = NFLAG_8(res); /* Undefined N behavior */
 	FLAG_Z |= res;
 
 	m68ki_write_8(ea, res);
@@ -4174,25 +4156,19 @@ void m68k_op_sbcd_8_mm_axy7(void)
 	uint dst = m68ki_read_8(ea);
 	uint res = LOW_NIBBLE(dst) - LOW_NIBBLE(src) - XFLAG_AS_1();
 
-//	FLAG_V = ~res; /* Undefined V behavior */
-	FLAG_V = VFLAG_CLEAR;	/* Undefined in Motorola's M68000PM/AD rev.1 and safer to return zero. */
+	FLAG_V = ~res; /* Undefined V behavior */
 
 	if(res > 9)
 		res -= 6;
 	res += HIGH_NIBBLE(dst) - HIGH_NIBBLE(src);
-	if(res > 0x99)
-	{
+	FLAG_X = FLAG_C = (res > 0x99) << 8;
+	if(FLAG_C)
 		res += 0xa0;
-		FLAG_X = FLAG_C = CFLAG_SET;
-		FLAG_N = NFLAG_SET;	/* Undefined in Motorola's M68000PM/AD rev.1 and safer to follow carry. */
-	}
-	else
-		FLAG_N = FLAG_X = FLAG_C = 0;
 
 	res = MASK_OUT_ABOVE_8(res);
 
-//	FLAG_V &= res; /* Undefined V behavior part II */
-//	FLAG_N = NFLAG_8(res); /* Undefined N behavior */
+	FLAG_V &= res; /* Undefined V behavior part II */
+	FLAG_N = NFLAG_8(res); /* Undefined N behavior */
 	FLAG_Z |= res;
 
 	m68ki_write_8(ea, res);
@@ -4206,25 +4182,19 @@ void m68k_op_sbcd_8_mm(void)
 	uint dst = m68ki_read_8(ea);
 	uint res = LOW_NIBBLE(dst) - LOW_NIBBLE(src) - XFLAG_AS_1();
 
-//	FLAG_V = ~res; /* Undefined V behavior */
-	FLAG_V = VFLAG_CLEAR;	/* Undefined in Motorola's M68000PM/AD rev.1 and safer to return zero. */
+	FLAG_V = ~res; /* Undefined V behavior */
 
 	if(res > 9)
 		res -= 6;
 	res += HIGH_NIBBLE(dst) - HIGH_NIBBLE(src);
-	if(res > 0x99)
-	{
+	FLAG_X = FLAG_C = (res > 0x99) << 8;
+	if(FLAG_C)
 		res += 0xa0;
-		FLAG_X = FLAG_C = CFLAG_SET;
-		FLAG_N = NFLAG_SET;	/* Undefined in Motorola's M68000PM/AD rev.1 and safer to follow carry. */
-	}
-	else
-		FLAG_N = FLAG_X = FLAG_C = 0;
 
 	res = MASK_OUT_ABOVE_8(res);
 
-//	FLAG_V &= res; /* Undefined V behavior part II */
-//	FLAG_N = NFLAG_8(res); /* Undefined N behavior */
+	FLAG_V &= res; /* Undefined V behavior part II */
+	FLAG_N = NFLAG_8(res); /* Undefined N behavior */
 	FLAG_Z |= res;
 
 	m68ki_write_8(ea, res);
@@ -6269,80 +6239,90 @@ void m68k_op_suba_16_a(void)
 void m68k_op_suba_16_ai(void)
 {
 	uint* r_dst = &AX;
+	uint src = MAKE_INT_16(OPER_AY_AI_16());
 
-	*r_dst = MASK_OUT_ABOVE_32(*r_dst - MAKE_INT_16(OPER_AY_AI_16()));
+	*r_dst = MASK_OUT_ABOVE_32(*r_dst - src);
 }
 
 
 void m68k_op_suba_16_pi(void)
 {
 	uint* r_dst = &AX;
+	uint src = MAKE_INT_16(OPER_AY_PI_16());
 
-	*r_dst = MASK_OUT_ABOVE_32(*r_dst - MAKE_INT_16(OPER_AY_PI_16()));
+	*r_dst = MASK_OUT_ABOVE_32(*r_dst - src);
 }
 
 
 void m68k_op_suba_16_pd(void)
 {
 	uint* r_dst = &AX;
+	uint src = MAKE_INT_16(OPER_AY_PD_16());
 
-	*r_dst = MASK_OUT_ABOVE_32(*r_dst - MAKE_INT_16(OPER_AY_PD_16()));
+	*r_dst = MASK_OUT_ABOVE_32(*r_dst - src);
 }
 
 
 void m68k_op_suba_16_di(void)
 {
 	uint* r_dst = &AX;
+	uint src = MAKE_INT_16(OPER_AY_DI_16());
 
-	*r_dst = MASK_OUT_ABOVE_32(*r_dst - MAKE_INT_16(OPER_AY_DI_16()));
+	*r_dst = MASK_OUT_ABOVE_32(*r_dst - src);
 }
 
 
 void m68k_op_suba_16_ix(void)
 {
 	uint* r_dst = &AX;
+	uint src = MAKE_INT_16(OPER_AY_IX_16());
 
-	*r_dst = MASK_OUT_ABOVE_32(*r_dst - MAKE_INT_16(OPER_AY_IX_16()));
+	*r_dst = MASK_OUT_ABOVE_32(*r_dst - src);
 }
 
 
 void m68k_op_suba_16_aw(void)
 {
 	uint* r_dst = &AX;
+	uint src = MAKE_INT_16(OPER_AW_16());
 
-	*r_dst = MASK_OUT_ABOVE_32(*r_dst - MAKE_INT_16(OPER_AW_16()));
+	*r_dst = MASK_OUT_ABOVE_32(*r_dst - src);
 }
 
 
 void m68k_op_suba_16_al(void)
 {
 	uint* r_dst = &AX;
+	uint src = MAKE_INT_16(OPER_AL_16());
 
-	*r_dst = MASK_OUT_ABOVE_32(*r_dst - MAKE_INT_16(OPER_AL_16()));
+	*r_dst = MASK_OUT_ABOVE_32(*r_dst - src);
 }
 
 
 void m68k_op_suba_16_pcdi(void)
 {
 	uint* r_dst = &AX;
+	uint src = MAKE_INT_16(OPER_PCDI_16());
 
-	*r_dst = MASK_OUT_ABOVE_32(*r_dst - MAKE_INT_16(OPER_PCDI_16()));
+	*r_dst = MASK_OUT_ABOVE_32(*r_dst - src);
 }
 
 
 void m68k_op_suba_16_pcix(void)
 {
 	uint* r_dst = &AX;
+	uint src = MAKE_INT_16(OPER_PCIX_16());
 
-	*r_dst = MASK_OUT_ABOVE_32(*r_dst - MAKE_INT_16(OPER_PCIX_16()));
+	*r_dst = MASK_OUT_ABOVE_32(*r_dst - src);
 }
 
 
 void m68k_op_suba_16_i(void)
 {
 	uint* r_dst = &AX;
+	uint src = MAKE_INT_16(OPER_I_16());
 
-	*r_dst = MASK_OUT_ABOVE_32(*r_dst - MAKE_INT_16(OPER_I_16()));
+	*r_dst = MASK_OUT_ABOVE_32(*r_dst - src);
 }
 
 
@@ -6364,81 +6344,91 @@ void m68k_op_suba_32_a(void)
 
 void m68k_op_suba_32_ai(void)
 {
+	uint src = OPER_AY_AI_32();
 	uint* r_dst = &AX;
 
-	*r_dst = MASK_OUT_ABOVE_32(*r_dst - OPER_AY_AI_32());
+	*r_dst = MASK_OUT_ABOVE_32(*r_dst - src);
 }
 
 
 void m68k_op_suba_32_pi(void)
 {
+	uint src = OPER_AY_PI_32();
 	uint* r_dst = &AX;
 
-	*r_dst = MASK_OUT_ABOVE_32(*r_dst - OPER_AY_PI_32());
+	*r_dst = MASK_OUT_ABOVE_32(*r_dst - src);
 }
 
 
 void m68k_op_suba_32_pd(void)
 {
+	uint src = OPER_AY_PD_32();
 	uint* r_dst = &AX;
 
-	*r_dst = MASK_OUT_ABOVE_32(*r_dst - OPER_AY_PD_32());
+	*r_dst = MASK_OUT_ABOVE_32(*r_dst - src);
 }
 
 
 void m68k_op_suba_32_di(void)
 {
+	uint src = OPER_AY_DI_32();
 	uint* r_dst = &AX;
 
-	*r_dst = MASK_OUT_ABOVE_32(*r_dst - OPER_AY_DI_32());
+	*r_dst = MASK_OUT_ABOVE_32(*r_dst - src);
 }
 
 
 void m68k_op_suba_32_ix(void)
 {
+	uint src = OPER_AY_IX_32();
 	uint* r_dst = &AX;
 
-	*r_dst = MASK_OUT_ABOVE_32(*r_dst - OPER_AY_IX_32());
+	*r_dst = MASK_OUT_ABOVE_32(*r_dst - src);
 }
 
 
 void m68k_op_suba_32_aw(void)
 {
+	uint src = OPER_AW_32();
 	uint* r_dst = &AX;
 
-	*r_dst = MASK_OUT_ABOVE_32(*r_dst - OPER_AW_32());
+	*r_dst = MASK_OUT_ABOVE_32(*r_dst - src);
 }
 
 
 void m68k_op_suba_32_al(void)
 {
+	uint src = OPER_AL_32();
 	uint* r_dst = &AX;
 
-	*r_dst = MASK_OUT_ABOVE_32(*r_dst - OPER_AL_32());
+	*r_dst = MASK_OUT_ABOVE_32(*r_dst - src);
 }
 
 
 void m68k_op_suba_32_pcdi(void)
 {
+	uint src = OPER_PCDI_32();
 	uint* r_dst = &AX;
 
-	*r_dst = MASK_OUT_ABOVE_32(*r_dst - OPER_PCDI_32());
+	*r_dst = MASK_OUT_ABOVE_32(*r_dst - src);
 }
 
 
 void m68k_op_suba_32_pcix(void)
 {
+	uint src = OPER_PCIX_32();
 	uint* r_dst = &AX;
 
-	*r_dst = MASK_OUT_ABOVE_32(*r_dst - OPER_PCIX_32());
+	*r_dst = MASK_OUT_ABOVE_32(*r_dst - src);
 }
 
 
 void m68k_op_suba_32_i(void)
 {
+	uint src = OPER_I_32();
 	uint* r_dst = &AX;
 
-	*r_dst = MASK_OUT_ABOVE_32(*r_dst - OPER_I_32());
+	*r_dst = MASK_OUT_ABOVE_32(*r_dst - src);
 }
 
 
@@ -7617,6 +7607,7 @@ void m68k_op_trapt_16(void)
 {
 	if(CPU_TYPE_IS_EC020_PLUS(CPU_TYPE))
 	{
+		REG_PC += 2; // JFF else stackframe & return addresses are incorrect
 		m68ki_exception_trap(EXCEPTION_TRAPV);	/* HJB 990403 */
 		return;
 	}
@@ -7628,6 +7619,7 @@ void m68k_op_trapt_32(void)
 {
 	if(CPU_TYPE_IS_EC020_PLUS(CPU_TYPE))
 	{
+		REG_PC += 4; // JFF else stackframe & return addresses are incorrect
 		m68ki_exception_trap(EXCEPTION_TRAPV);	/* HJB 990403 */
 		return;
 	}
@@ -7839,12 +7831,13 @@ void m68k_op_traphi_16(void)
 {
 	if(CPU_TYPE_IS_EC020_PLUS(CPU_TYPE))
 	{
+		REG_PC += 2;  /* JFF increase before or 1) stackframe is incorrect 2) RTE address is wrong if trap is taken */
 		if(COND_HI())
 		{
 			m68ki_exception_trap(EXCEPTION_TRAPV);	/* HJB 990403 */
 			return;
 		}
-		REG_PC += 2;
+
 		return;
 	}
 	m68ki_exception_illegal();
@@ -7855,12 +7848,13 @@ void m68k_op_trapls_16(void)
 {
 	if(CPU_TYPE_IS_EC020_PLUS(CPU_TYPE))
 	{
+		REG_PC += 2;  /* JFF increase before or 1) stackframe is incorrect 2) RTE address is wrong if trap is taken */
 		if(COND_LS())
 		{
 			m68ki_exception_trap(EXCEPTION_TRAPV);	/* HJB 990403 */
 			return;
 		}
-		REG_PC += 2;
+
 		return;
 	}
 	m68ki_exception_illegal();
@@ -7871,12 +7865,13 @@ void m68k_op_trapcc_16(void)
 {
 	if(CPU_TYPE_IS_EC020_PLUS(CPU_TYPE))
 	{
+		REG_PC += 2;  /* JFF increase before or 1) stackframe is incorrect 2) RTE address is wrong if trap is taken */
 		if(COND_CC())
 		{
 			m68ki_exception_trap(EXCEPTION_TRAPV);	/* HJB 990403 */
 			return;
 		}
-		REG_PC += 2;
+
 		return;
 	}
 	m68ki_exception_illegal();
@@ -7887,12 +7882,13 @@ void m68k_op_trapcs_16(void)
 {
 	if(CPU_TYPE_IS_EC020_PLUS(CPU_TYPE))
 	{
+		REG_PC += 2;  /* JFF increase before or 1) stackframe is incorrect 2) RTE address is wrong if trap is taken */
 		if(COND_CS())
 		{
 			m68ki_exception_trap(EXCEPTION_TRAPV);	/* HJB 990403 */
 			return;
 		}
-		REG_PC += 2;
+
 		return;
 	}
 	m68ki_exception_illegal();
@@ -7903,12 +7899,13 @@ void m68k_op_trapne_16(void)
 {
 	if(CPU_TYPE_IS_EC020_PLUS(CPU_TYPE))
 	{
+		REG_PC += 2;  /* JFF increase before or 1) stackframe is incorrect 2) RTE address is wrong if trap is taken */
 		if(COND_NE())
 		{
 			m68ki_exception_trap(EXCEPTION_TRAPV);	/* HJB 990403 */
 			return;
 		}
-		REG_PC += 2;
+
 		return;
 	}
 	m68ki_exception_illegal();
@@ -7919,12 +7916,13 @@ void m68k_op_trapeq_16(void)
 {
 	if(CPU_TYPE_IS_EC020_PLUS(CPU_TYPE))
 	{
+		REG_PC += 2;  /* JFF increase before or 1) stackframe is incorrect 2) RTE address is wrong if trap is taken */
 		if(COND_EQ())
 		{
 			m68ki_exception_trap(EXCEPTION_TRAPV);	/* HJB 990403 */
 			return;
 		}
-		REG_PC += 2;
+
 		return;
 	}
 	m68ki_exception_illegal();
@@ -7935,12 +7933,13 @@ void m68k_op_trapvc_16(void)
 {
 	if(CPU_TYPE_IS_EC020_PLUS(CPU_TYPE))
 	{
+		REG_PC += 2;  /* JFF increase before or 1) stackframe is incorrect 2) RTE address is wrong if trap is taken */
 		if(COND_VC())
 		{
 			m68ki_exception_trap(EXCEPTION_TRAPV);	/* HJB 990403 */
 			return;
 		}
-		REG_PC += 2;
+
 		return;
 	}
 	m68ki_exception_illegal();
@@ -7951,12 +7950,13 @@ void m68k_op_trapvs_16(void)
 {
 	if(CPU_TYPE_IS_EC020_PLUS(CPU_TYPE))
 	{
+		REG_PC += 2;  /* JFF increase before or 1) stackframe is incorrect 2) RTE address is wrong if trap is taken */
 		if(COND_VS())
 		{
 			m68ki_exception_trap(EXCEPTION_TRAPV);	/* HJB 990403 */
 			return;
 		}
-		REG_PC += 2;
+
 		return;
 	}
 	m68ki_exception_illegal();
@@ -7967,12 +7967,13 @@ void m68k_op_trappl_16(void)
 {
 	if(CPU_TYPE_IS_EC020_PLUS(CPU_TYPE))
 	{
+		REG_PC += 2;  /* JFF increase before or 1) stackframe is incorrect 2) RTE address is wrong if trap is taken */
 		if(COND_PL())
 		{
 			m68ki_exception_trap(EXCEPTION_TRAPV);	/* HJB 990403 */
 			return;
 		}
-		REG_PC += 2;
+
 		return;
 	}
 	m68ki_exception_illegal();
@@ -7983,12 +7984,13 @@ void m68k_op_trapmi_16(void)
 {
 	if(CPU_TYPE_IS_EC020_PLUS(CPU_TYPE))
 	{
+		REG_PC += 2;  /* JFF increase before or 1) stackframe is incorrect 2) RTE address is wrong if trap is taken */
 		if(COND_MI())
 		{
 			m68ki_exception_trap(EXCEPTION_TRAPV);	/* HJB 990403 */
 			return;
 		}
-		REG_PC += 2;
+
 		return;
 	}
 	m68ki_exception_illegal();
@@ -7999,12 +8001,13 @@ void m68k_op_trapge_16(void)
 {
 	if(CPU_TYPE_IS_EC020_PLUS(CPU_TYPE))
 	{
+		REG_PC += 2;  /* JFF increase before or 1) stackframe is incorrect 2) RTE address is wrong if trap is taken */
 		if(COND_GE())
 		{
 			m68ki_exception_trap(EXCEPTION_TRAPV);	/* HJB 990403 */
 			return;
 		}
-		REG_PC += 2;
+
 		return;
 	}
 	m68ki_exception_illegal();
@@ -8015,12 +8018,13 @@ void m68k_op_traplt_16(void)
 {
 	if(CPU_TYPE_IS_EC020_PLUS(CPU_TYPE))
 	{
+		REG_PC += 2;  /* JFF increase before or 1) stackframe is incorrect 2) RTE address is wrong if trap is taken */
 		if(COND_LT())
 		{
 			m68ki_exception_trap(EXCEPTION_TRAPV);	/* HJB 990403 */
 			return;
 		}
-		REG_PC += 2;
+
 		return;
 	}
 	m68ki_exception_illegal();
@@ -8031,12 +8035,13 @@ void m68k_op_trapgt_16(void)
 {
 	if(CPU_TYPE_IS_EC020_PLUS(CPU_TYPE))
 	{
+		REG_PC += 2;  /* JFF increase before or 1) stackframe is incorrect 2) RTE address is wrong if trap is taken */
 		if(COND_GT())
 		{
 			m68ki_exception_trap(EXCEPTION_TRAPV);	/* HJB 990403 */
 			return;
 		}
-		REG_PC += 2;
+
 		return;
 	}
 	m68ki_exception_illegal();
@@ -8047,12 +8052,13 @@ void m68k_op_traple_16(void)
 {
 	if(CPU_TYPE_IS_EC020_PLUS(CPU_TYPE))
 	{
+		REG_PC += 2;  /* JFF increase before or 1) stackframe is incorrect 2) RTE address is wrong if trap is taken */
 		if(COND_LE())
 		{
 			m68ki_exception_trap(EXCEPTION_TRAPV);	/* HJB 990403 */
 			return;
 		}
-		REG_PC += 2;
+
 		return;
 	}
 	m68ki_exception_illegal();
@@ -8063,12 +8069,12 @@ void m68k_op_traphi_32(void)
 {
 	if(CPU_TYPE_IS_EC020_PLUS(CPU_TYPE))
 	{
+		REG_PC += 4;  /* JFF increase before or 1) stackframe is incorrect 2) RTE address is wrong if trap is taken */
 		if(COND_HI())
 		{
 			m68ki_exception_trap(EXCEPTION_TRAPV);	/* HJB 990403 */
 			return;
 		}
-		REG_PC += 4;
 		return;
 	}
 	m68ki_exception_illegal();
@@ -8079,12 +8085,12 @@ void m68k_op_trapls_32(void)
 {
 	if(CPU_TYPE_IS_EC020_PLUS(CPU_TYPE))
 	{
+		REG_PC += 4;  /* JFF increase before or 1) stackframe is incorrect 2) RTE address is wrong if trap is taken */
 		if(COND_LS())
 		{
 			m68ki_exception_trap(EXCEPTION_TRAPV);	/* HJB 990403 */
 			return;
 		}
-		REG_PC += 4;
 		return;
 	}
 	m68ki_exception_illegal();
@@ -8095,12 +8101,12 @@ void m68k_op_trapcc_32(void)
 {
 	if(CPU_TYPE_IS_EC020_PLUS(CPU_TYPE))
 	{
+		REG_PC += 4;  /* JFF increase before or 1) stackframe is incorrect 2) RTE address is wrong if trap is taken */
 		if(COND_CC())
 		{
 			m68ki_exception_trap(EXCEPTION_TRAPV);	/* HJB 990403 */
 			return;
 		}
-		REG_PC += 4;
 		return;
 	}
 	m68ki_exception_illegal();
@@ -8111,12 +8117,12 @@ void m68k_op_trapcs_32(void)
 {
 	if(CPU_TYPE_IS_EC020_PLUS(CPU_TYPE))
 	{
+		REG_PC += 4;  /* JFF increase before or 1) stackframe is incorrect 2) RTE address is wrong if trap is taken */
 		if(COND_CS())
 		{
 			m68ki_exception_trap(EXCEPTION_TRAPV);	/* HJB 990403 */
 			return;
 		}
-		REG_PC += 4;
 		return;
 	}
 	m68ki_exception_illegal();
@@ -8127,12 +8133,12 @@ void m68k_op_trapne_32(void)
 {
 	if(CPU_TYPE_IS_EC020_PLUS(CPU_TYPE))
 	{
+		REG_PC += 4;  /* JFF increase before or 1) stackframe is incorrect 2) RTE address is wrong if trap is taken */
 		if(COND_NE())
 		{
 			m68ki_exception_trap(EXCEPTION_TRAPV);	/* HJB 990403 */
 			return;
 		}
-		REG_PC += 4;
 		return;
 	}
 	m68ki_exception_illegal();
@@ -8143,12 +8149,12 @@ void m68k_op_trapeq_32(void)
 {
 	if(CPU_TYPE_IS_EC020_PLUS(CPU_TYPE))
 	{
+		REG_PC += 4;  /* JFF increase before or 1) stackframe is incorrect 2) RTE address is wrong if trap is taken */
 		if(COND_EQ())
 		{
 			m68ki_exception_trap(EXCEPTION_TRAPV);	/* HJB 990403 */
 			return;
 		}
-		REG_PC += 4;
 		return;
 	}
 	m68ki_exception_illegal();
@@ -8159,12 +8165,12 @@ void m68k_op_trapvc_32(void)
 {
 	if(CPU_TYPE_IS_EC020_PLUS(CPU_TYPE))
 	{
+		REG_PC += 4;  /* JFF increase before or 1) stackframe is incorrect 2) RTE address is wrong if trap is taken */
 		if(COND_VC())
 		{
 			m68ki_exception_trap(EXCEPTION_TRAPV);	/* HJB 990403 */
 			return;
 		}
-		REG_PC += 4;
 		return;
 	}
 	m68ki_exception_illegal();
@@ -8175,12 +8181,12 @@ void m68k_op_trapvs_32(void)
 {
 	if(CPU_TYPE_IS_EC020_PLUS(CPU_TYPE))
 	{
+		REG_PC += 4;  /* JFF increase before or 1) stackframe is incorrect 2) RTE address is wrong if trap is taken */
 		if(COND_VS())
 		{
 			m68ki_exception_trap(EXCEPTION_TRAPV);	/* HJB 990403 */
 			return;
 		}
-		REG_PC += 4;
 		return;
 	}
 	m68ki_exception_illegal();
@@ -8191,12 +8197,12 @@ void m68k_op_trappl_32(void)
 {
 	if(CPU_TYPE_IS_EC020_PLUS(CPU_TYPE))
 	{
+		REG_PC += 4;  /* JFF increase before or 1) stackframe is incorrect 2) RTE address is wrong if trap is taken */
 		if(COND_PL())
 		{
 			m68ki_exception_trap(EXCEPTION_TRAPV);	/* HJB 990403 */
 			return;
 		}
-		REG_PC += 4;
 		return;
 	}
 	m68ki_exception_illegal();
@@ -8207,12 +8213,12 @@ void m68k_op_trapmi_32(void)
 {
 	if(CPU_TYPE_IS_EC020_PLUS(CPU_TYPE))
 	{
+		REG_PC += 4;  /* JFF increase before or 1) stackframe is incorrect 2) RTE address is wrong if trap is taken */
 		if(COND_MI())
 		{
 			m68ki_exception_trap(EXCEPTION_TRAPV);	/* HJB 990403 */
 			return;
 		}
-		REG_PC += 4;
 		return;
 	}
 	m68ki_exception_illegal();
@@ -8223,12 +8229,12 @@ void m68k_op_trapge_32(void)
 {
 	if(CPU_TYPE_IS_EC020_PLUS(CPU_TYPE))
 	{
+		REG_PC += 4;  /* JFF increase before or 1) stackframe is incorrect 2) RTE address is wrong if trap is taken */
 		if(COND_GE())
 		{
 			m68ki_exception_trap(EXCEPTION_TRAPV);	/* HJB 990403 */
 			return;
 		}
-		REG_PC += 4;
 		return;
 	}
 	m68ki_exception_illegal();
@@ -8239,12 +8245,12 @@ void m68k_op_traplt_32(void)
 {
 	if(CPU_TYPE_IS_EC020_PLUS(CPU_TYPE))
 	{
+		REG_PC += 4;  /* JFF increase before or 1) stackframe is incorrect 2) RTE address is wrong if trap is taken */
 		if(COND_LT())
 		{
 			m68ki_exception_trap(EXCEPTION_TRAPV);	/* HJB 990403 */
 			return;
 		}
-		REG_PC += 4;
 		return;
 	}
 	m68ki_exception_illegal();
@@ -8255,12 +8261,12 @@ void m68k_op_trapgt_32(void)
 {
 	if(CPU_TYPE_IS_EC020_PLUS(CPU_TYPE))
 	{
+		REG_PC += 4;  /* JFF increase before or 1) stackframe is incorrect 2) RTE address is wrong if trap is taken */
 		if(COND_GT())
 		{
 			m68ki_exception_trap(EXCEPTION_TRAPV);	/* HJB 990403 */
 			return;
 		}
-		REG_PC += 4;
 		return;
 	}
 	m68ki_exception_illegal();
@@ -8271,12 +8277,12 @@ void m68k_op_traple_32(void)
 {
 	if(CPU_TYPE_IS_EC020_PLUS(CPU_TYPE))
 	{
+		REG_PC += 4;  /* JFF increase before or 1) stackframe is incorrect 2) RTE address is wrong if trap is taken */
 		if(COND_LE())
 		{
 			m68ki_exception_trap(EXCEPTION_TRAPV);	/* HJB 990403 */
 			return;
 		}
-		REG_PC += 4;
 		return;
 	}
 	m68ki_exception_illegal();

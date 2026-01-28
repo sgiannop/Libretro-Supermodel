@@ -47,7 +47,7 @@ else ifneq ($(findstring MINGW,$(shell uname -a)),)
 endif
 
 # Replace 'sample' with the name of the core
-TARGET_NAME := sample
+TARGET_NAME := supermodel
 GIT_VERSION := " $(shell git rev-parse --short HEAD || echo unknown)"
 ifneq ($(GIT_VERSION)," unknown")
 	CFLAGS += -DGIT_VERSION=\"$(GIT_VERSION)\"
@@ -585,6 +585,7 @@ include Makefile.common
 OBJECTS := $(SOURCES_C:.c=.o) $(SOURCES_CXX:.cpp=.o)
 
 DEFINES := $(COREDEFINES) $(PLATFORM_DEFINES)
+DEFINES += -DSUPERMODEL_OSD_LIBRETRO
 
 ifeq ($(STATIC_LINKING),1)
 	DEFINES += -DSTATIC_LINKING
@@ -631,6 +632,8 @@ ${LIBRARY_NAME}_FILES = $(SOURCES_C)
 include $(THEOS_MAKE_PATH)/library.mk
 else
 all: $(TARGET)
+LIBS += -lm -lGLEW -lGL -lGLU -lz -lSDL2
+
 $(TARGET): $(OBJECTS)
 ifeq ($(STATIC_LINKING),1)
 ifneq (,$(findstring msvc,$(platform)))

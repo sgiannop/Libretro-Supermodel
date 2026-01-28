@@ -18,21 +18,27 @@
  ** You should have received a copy of the GNU General Public License along
  ** with Supermodel.  If not, see <http://www.gnu.org/licenses/>.
  **/
- 
+
 /*
  * ppc_ops.c
  *
- * PowerPC common opcodes. Included from ppc.cpp; do not compile compile 
+ * PowerPC common opcodes. Included from ppc.cpp; do not compile
  * separately.
  * 
  * Changes to opcode handlers since inclusion in new Supermodel:
  *		- Feb. 13 2011: Changed stwcx. to always set the EQ flag.
  */
- 
+
 /* PowerPC common opcodes */
 
 // it really seems like this should be elsewhere - like maybe the floating point checks can hang out someplace else
-#include <math.h>
+#include <cfenv>
+#include <cmath>
+#pragma STDC FENV_ACCESS ON // because of fesetround
+#ifdef _MSC_VER
+#pragma float_control(precise,on) // because of fenv_access(on)
+#pragma fenv_access(on) // because of fesetround
+#endif
 
 static void ppc_unimplemented(UINT32 op)
 {
@@ -230,16 +236,16 @@ static void ppc_bx(UINT32 op)
 	if( li & 0x2000000 )
 		li |= 0xfc000000;
 
-	if( AABIT ) {
-		ppc.npc = li;
-	} else {
-		ppc.npc = ppc.pc + li;
+	ppc.npc = li;
+
+	if( !AABIT ) {
+		ppc.npc += ppc.pc;
 	}
 
 	if( LKBIT ) {
 		LR = ppc.pc + 4;
 	}
-	
+
 	ppc_change_pc(ppc.npc);
 }
 
@@ -248,11 +254,9 @@ static void ppc_bcx(UINT32 op)
 	int condition = check_condition_code(BO, BI);
 
 	if( condition ) {
-		if( AABIT ) {
-			ppc.npc = SIMM16 & ~0x3;
-		} else {
-			ppc.npc = ppc.pc + (SIMM16 & ~0x3);
-		}
+		ppc.npc = SIMM16 & ~0x3;
+		if( !AABIT )
+			ppc.npc += ppc.pc;
 
 		ppc_change_pc(ppc.npc);
 	}
@@ -383,7 +387,7 @@ static void ppc_crand(UINT32 op)
 {
 	int bit = RT;
 	int b = CRBIT(RA) & CRBIT(RB);
-	if( b & 0x1 )
+	if( b )
 		CR(bit / 4) |= _BIT(3-(bit % 4));
 	else
 		CR(bit / 4) &= ~_BIT(3-(bit % 4));
@@ -392,8 +396,8 @@ static void ppc_crand(UINT32 op)
 static void ppc_crandc(UINT32 op)
 {
 	int bit = RT;
-	int b = CRBIT(RA) & ~CRBIT(RB);
-	if( b & 0x1 )
+	int b = CRBIT(RA) & (CRBIT(RB) ^ 0x1);
+	if( b )
 		CR(bit / 4) |= _BIT(3-(bit % 4));
 	else
 		CR(bit / 4) &= ~_BIT(3-(bit % 4));
@@ -402,8 +406,8 @@ static void ppc_crandc(UINT32 op)
 static void ppc_creqv(UINT32 op)
 {
 	int bit = RT;
-	int b = ~(CRBIT(RA) ^ CRBIT(RB));
-	if( b & 0x1 )
+	int b = (CRBIT(RA) ^ CRBIT(RB)) ^ 0x1;
+	if( b )
 		CR(bit / 4) |= _BIT(3-(bit % 4));
 	else
 		CR(bit / 4) &= ~_BIT(3-(bit % 4));
@@ -412,8 +416,8 @@ static void ppc_creqv(UINT32 op)
 static void ppc_crnand(UINT32 op)
 {
 	int bit = RT;
-	int b = ~(CRBIT(RA) & CRBIT(RB));
-	if( b & 0x1 )
+	int b = (CRBIT(RA) & CRBIT(RB)) ^ 0x1;
+	if( b )
 		CR(bit / 4) |= _BIT(3-(bit % 4));
 	else
 		CR(bit / 4) &= ~_BIT(3-(bit % 4));
@@ -422,8 +426,8 @@ static void ppc_crnand(UINT32 op)
 static void ppc_crnor(UINT32 op)
 {
 	int bit = RT;
-	int b = ~(CRBIT(RA) | CRBIT(RB));
-	if( b & 0x1 )
+	int b = (CRBIT(RA) | CRBIT(RB)) ^ 0x1;
+	if( b )
 		CR(bit / 4) |= _BIT(3-(bit % 4));
 	else
 		CR(bit / 4) &= ~_BIT(3-(bit % 4));
@@ -433,7 +437,7 @@ static void ppc_cror(UINT32 op)
 {
 	int bit = RT;
 	int b = CRBIT(RA) | CRBIT(RB);
-	if( b & 0x1 )
+	if( b )
 		CR(bit / 4) |= _BIT(3-(bit % 4));
 	else
 		CR(bit / 4) &= ~_BIT(3-(bit % 4));
@@ -442,8 +446,8 @@ static void ppc_cror(UINT32 op)
 static void ppc_crorc(UINT32 op)
 {
 	int bit = RT;
-	int b = CRBIT(RA) | ~CRBIT(RB);
-	if( b & 0x1 )
+	int b = CRBIT(RA) | (CRBIT(RB) ^ 0x1);
+	if( b )
 		CR(bit / 4) |= _BIT(3-(bit % 4));
 	else
 		CR(bit / 4) &= ~_BIT(3-(bit % 4));
@@ -453,7 +457,7 @@ static void ppc_crxor(UINT32 op)
 {
 	int bit = RT;
 	int b = CRBIT(RA) ^ CRBIT(RB);
-	if( b & 0x1 )
+	if( b )
 		CR(bit / 4) |= _BIT(3-(bit % 4));
 	else
 		CR(bit / 4) &= ~_BIT(3-(bit % 4));
@@ -584,12 +588,10 @@ static void ppc_isync(UINT32 op)
 
 static void ppc_lbz(UINT32 op)
 {
-	UINT32 ea;
+	UINT32 ea = SIMM16;
 
-	if( RA == 0 )
-		ea = SIMM16;
-	else
-		ea = REG(RA) + SIMM16;
+	if( RA != 0 )
+		ea += REG(RA);
 
 	REG(RT) = (UINT32)READ8(ea);
 }
@@ -612,24 +614,20 @@ static void ppc_lbzux(UINT32 op)
 
 static void ppc_lbzx(UINT32 op)
 {
-	UINT32 ea;
+	UINT32 ea = REG(RB);
 
-	if( RA == 0 )
-		ea = REG(RB);
-	else
-		ea = REG(RA) + REG(RB);
+	if( RA != 0 )
+		ea += REG(RA);
 
 	REG(RT) = (UINT32)READ8(ea);
 }
 
 static void ppc_lha(UINT32 op)
 {
-	UINT32 ea;
+	UINT32 ea = SIMM16;
 
-	if( RA == 0 )
-		ea = SIMM16;
-	else
-		ea = REG(RA) + SIMM16;
+	if( RA != 0 )
+		ea += REG(RA);
 
 	REG(RT) = (INT32)(INT16)READ16(ea);
 }
@@ -652,25 +650,21 @@ static void ppc_lhaux(UINT32 op)
 
 static void ppc_lhax(UINT32 op)
 {
-	UINT32 ea;
+	UINT32 ea = REG(RB);
 
-	if( RA == 0 )
-		ea = REG(RB);
-	else
-		ea = REG(RA) + REG(RB);
+	if( RA != 0 )
+		ea += REG(RA);
 
 	REG(RT) = (INT32)(INT16)READ16(ea);
 }
 
 static void ppc_lhbrx(UINT32 op)
 {
-	UINT32 ea;
+	UINT32 ea = REG(RB);
 	UINT16 w;
 
-	if( RA == 0 )
-		ea = REG(RB);
-	else
-		ea = REG(RA) + REG(RB);
+	if( RA != 0 )
+		ea += REG(RA);
 
 	w = READ16(ea);
 	REG(RT) = (UINT32)BYTE_REVERSE16(w);
@@ -678,12 +672,10 @@ static void ppc_lhbrx(UINT32 op)
 
 static void ppc_lhz(UINT32 op)
 {
-	UINT32 ea;
+	UINT32 ea = SIMM16;
 
-	if( RA == 0 )
-		ea = SIMM16;
-	else
-		ea = REG(RA) + SIMM16;
+	if( RA != 0 )
+		ea += REG(RA);
 
 	REG(RT) = (UINT32)READ16(ea);
 }
@@ -706,12 +698,10 @@ static void ppc_lhzux(UINT32 op)
 
 static void ppc_lhzx(UINT32 op)
 {
-	UINT32 ea;
+	UINT32 ea = REG(RB);
 
-	if( RA == 0 )
-		ea = REG(RB);
-	else
-		ea = REG(RA) + REG(RB);
+	if( RA != 0 )
+		ea += REG(RA);
 
 	REG(RT) = (UINT32)READ16(ea);
 }
@@ -719,12 +709,10 @@ static void ppc_lhzx(UINT32 op)
 static void ppc_lmw(UINT32 op)
 {
 	int r = RT;
-	UINT32 ea;
+	UINT32 ea = SIMM16;
 
-	if( RA == 0 )
-		ea = SIMM16;
-	else
-		ea = REG(RA) + SIMM16;
+	if( RA != 0 )
+		ea += REG(RA);
 
 	while( r <= 31 )
 	{
@@ -737,14 +725,9 @@ static void ppc_lmw(UINT32 op)
 static void ppc_lswi(UINT32 op)
 {
 	int n, r, i;
-	UINT32 ea = 0;
-	if( RA != 0 )
-		ea = REG(RA);
+	UINT32 ea = (RA != 0) ? REG(RA) : 0;
 
-	if( RB == 0 )
-		n = 32;
-	else
-		n = RB;
+	n = (RB == 0) ? 32 : RB;
 
 	r = RT - 1;
 	i = 0;
@@ -767,19 +750,38 @@ static void ppc_lswi(UINT32 op)
 
 static void ppc_lswx(UINT32 op)
 {
-	ErrorLog("PowerPC hit an unimplemented instruction. Halting emulation until reset.");
-	DebugLog("ppc: lswx unimplemented at %08X\n", ppc.pc);
-	ppc.fatalError = true;
+	int n, r, i;
+	UINT32 ea = REG(RB);
+	if(RA != 0)
+		ea += REG(RA);
+
+	n = ppc.xer & 0x7f;
+
+	r = RT - 1;
+	i = 0;
+
+	while(n > 0)
+	{
+		if (i == 0) {
+			r = (r + 1) % 32;
+			REG(r) = 0;
+		}
+		REG(r) |= ((READ8(ea) & 0xff) << (24 - i));
+		i += 8;
+		if (i == 32) {
+			i = 0;
+		}
+		ea++;
+		n--;
+	}
 }
 
 static void ppc_lwarx(UINT32 op)
 {
-	UINT32 ea;
+	UINT32 ea = REG(RB);
 
-	if( RA == 0 )
-		ea = REG(RB);
-	else
-		ea = REG(RA) + REG(RB);
+	if( RA != 0 )
+		ea += REG(RA);
 
 	ppc.reserved_address = ea;
 	ppc.reserved = 1;
@@ -789,13 +791,11 @@ static void ppc_lwarx(UINT32 op)
 
 static void ppc_lwbrx(UINT32 op)
 {
-	UINT32 ea;
+	UINT32 ea = REG(RB);
 	UINT32 w;
 
-	if( RA == 0 )
-		ea = REG(RB);
-	else
-		ea = REG(RA) + REG(RB);
+	if( RA != 0 )
+		ea += REG(RA);
 
 	w = READ32(ea);
 	REG(RT) = BYTE_REVERSE32(w);
@@ -803,12 +803,10 @@ static void ppc_lwbrx(UINT32 op)
 
 static void ppc_lwz(UINT32 op)
 {
-	UINT32 ea;
+	UINT32 ea = SIMM16;
 
-	if( RA == 0 )
-		ea = SIMM16;
-	else
-		ea = REG(RA) + SIMM16;
+	if( RA != 0 )
+		ea += REG(RA);
 
 	REG(RT) = READ32(ea);
 }
@@ -831,12 +829,10 @@ static void ppc_lwzux(UINT32 op)
 
 static void ppc_lwzx(UINT32 op)
 {
-	UINT32 ea;
+	UINT32 ea = REG(RB);
 
-	if( RA == 0 )
-		ea = REG(RB);
-	else
-		ea = REG(RA) + REG(RB);
+	if( RA != 0 )
+		ea += REG(RA);
 
 	REG(RT) = READ32(ea);
 }
@@ -1141,12 +1137,10 @@ static void ppc_srwx(UINT32 op)
 
 static void ppc_stb(UINT32 op)
 {
-	UINT32 ea;
+	UINT32 ea = SIMM16;
 
-	if( RA == 0 )
-		ea = SIMM16;
-	else
-		ea = REG(RA) + SIMM16;
+	if( RA != 0 )
+		ea += REG(RA);
 
 	WRITE8(ea, (UINT8)REG(RS));
 }
@@ -1169,37 +1163,31 @@ static void ppc_stbux(UINT32 op)
 
 static void ppc_stbx(UINT32 op)
 {
-	UINT32 ea;
+	UINT32 ea = REG(RB);
 
-	if( RA == 0 )
-		ea = REG(RB);
-	else
-		ea = REG(RA) + REG(RB);
+	if( RA != 0 )
+		ea += REG(RA);
 
 	WRITE8(ea, (UINT8)REG(RS));
 }
 
 static void ppc_sth(UINT32 op)
 {
-	UINT32 ea;
+	UINT32 ea = SIMM16;
 
-	if( RA == 0 )
-		ea = SIMM16;
-	else
-		ea = REG(RA) + SIMM16;
+	if( RA != 0 )
+		ea += REG(RA);
 
 	WRITE16(ea, (UINT16)REG(RS));
 }
 
 static void ppc_sthbrx(UINT32 op)
 {
-	UINT32 ea;
+	UINT32 ea = REG(RB);
 	UINT16 w;
 
-	if( RA == 0 )
-		ea = REG(RB);
-	else
-		ea = REG(RA) + REG(RB);
+	if( RA != 0 )
+		ea += REG(RA);
 
 	w = REG(RS);
 	WRITE16(ea, (UINT16)BYTE_REVERSE16(w));
@@ -1223,25 +1211,21 @@ static void ppc_sthux(UINT32 op)
 
 static void ppc_sthx(UINT32 op)
 {
-	UINT32 ea;
+	UINT32 ea = REG(RB);
 
-	if( RA == 0 )
-		ea = REG(RB);
-	else
-		ea = REG(RA) + REG(RB);
+	if( RA != 0 )
+		ea += REG(RA);
 
 	WRITE16(ea, (UINT16)REG(RS));
 }
 
 static void ppc_stmw(UINT32 op)
 {
-	UINT32 ea;
+	UINT32 ea = SIMM16;
 	int r = RS;
 
-	if( RA == 0 )
-		ea = SIMM16;
-	else
-		ea = REG(RA) + SIMM16;
+	if( RA != 0 )
+		ea += REG(RA);
 
 	while( r <= 31 )
 	{
@@ -1254,14 +1238,9 @@ static void ppc_stmw(UINT32 op)
 static void ppc_stswi(UINT32 op)
 {
 	int n, r, i;
-	UINT32 ea = 0;
-	if( RA != 0 )
-		ea = REG(RA);
+	UINT32 ea = (RA != 0) ? REG(RA) : 0;
 
-	if( RB == 0 )
-		n = 32;
-	else
-		n = RB;
+	n = (RB == 0) ? 32 : RB;
 
 	r = RT - 1;
 	i = 0;
@@ -1283,32 +1262,48 @@ static void ppc_stswi(UINT32 op)
 
 static void ppc_stswx(UINT32 op)
 {
-	ErrorLog("PowerPC hit an unimplemented instruction. Halting emulation until reset.");
-	DebugLog("ppc: stswx unimplemented\n");
-	ppc.fatalError = true;
+	int n, r, i;
+	UINT32 ea = REG(RB);
+	if (RA != 0)
+		ea += REG(RA);
+
+	n = ppc.xer & 0x7f;
+
+	r = RT - 1;
+	i = 0;
+
+	while(n > 0)
+	{
+		if (i == 0) {
+			r = (r + 1) % 32;
+		}
+		WRITE8(ea, (REG(r) >> (24-i)) & 0xff);
+		i += 8;
+		if (i == 32) {
+			i = 0;
+		}
+		ea++;
+		n--;
+	}
 }
 
 static void ppc_stw(UINT32 op)
 {
-	UINT32 ea;
+	UINT32 ea = SIMM16;
 
-	if( RA == 0 )
-		ea = SIMM16;
-	else
-		ea = REG(RA) + SIMM16;
+	if( RA != 0 )
+		ea += REG(RA);
 
 	WRITE32(ea, REG(RS));
 }
 
 static void ppc_stwbrx(UINT32 op)
 {
-	UINT32 ea;
+	UINT32 ea = REG(RB);
 	UINT32 w;
 
-	if( RA == 0 )
-		ea = REG(RB);
-	else
-		ea = REG(RA) + REG(RB);
+	if( RA != 0 )
+		ea += REG(RA);
 
 	w = REG(RS);
 	WRITE32(ea, BYTE_REVERSE32(w));
@@ -1316,12 +1311,10 @@ static void ppc_stwbrx(UINT32 op)
 
 static void ppc_stwcx_rc(UINT32 op)
 {
-	UINT32 ea;
+	UINT32 ea = REG(RB);
 
-	if( RA == 0 )
-		ea = REG(RB);
-	else
-		ea = REG(RA) + REG(RB);
+	if( RA != 0 )
+		ea += REG(RA);
 
 	if( ppc.reserved ) {
 		WRITE32(ea, REG(RS));
@@ -1330,13 +1323,12 @@ static void ppc_stwcx_rc(UINT32 op)
 		ppc.reserved_address = 0;
 
 		CR(0) = 0x2;	// set EQ to indicate success
-		if( XER & XER_SO )
-			CR(0) |= 0x1;
 	} else {
 		CR(0) = 0;
-		if( XER & XER_SO )
-			CR(0) |= 0x1;
 	}
+
+	if (XER & XER_SO)
+		CR(0) |= 0x1;
 }
 
 static void ppc_stwu(UINT32 op)
@@ -1357,12 +1349,10 @@ static void ppc_stwux(UINT32 op)
 
 static void ppc_stwx(UINT32 op)
 {
-	UINT32 ea;
+	UINT32 ea = REG(RB);
 
-	if( RA == 0 )
-		ea = REG(RB);
-	else
-		ea = REG(RA) + REG(RB);
+	if( RA != 0 )
+		ea += REG(RA);
 
 	WRITE32(ea, REG(RS));
 }
@@ -1402,9 +1392,7 @@ static void ppc_subfex(UINT32 op)
 	UINT32 ra = REG(RA);
 	UINT32 rb = REG(RB);
 	UINT32 carry = (XER >> 29) & 0x1;
-	UINT32 r;
-
-	r = ~ra + carry;
+	UINT32 r = ~ra + carry;
 	REG(RT) = rb + r;
 
 	SET_ADD_CA(r, ~ra, carry);		/* step 1 carry */
@@ -1433,9 +1421,7 @@ static void ppc_subfmex(UINT32 op)
 {
 	UINT32 ra = REG(RA);
 	UINT32 carry = (XER >> 29) & 0x1;
-	UINT32 r;
-
-	r = ~ra + carry;
+	UINT32 r = ~ra + carry;
 	REG(RT) = r - 1;
 
 	SET_SUB_CA(r, ~ra, carry);		/* step 1 carry */
@@ -1479,19 +1465,11 @@ static void ppc_tw(UINT32 op)
 	INT32 b = REG(RB);
 	int to = RT;
 
-	if( (a < b) && (to & 0x10) ) {
-		exception = 1;
-	}
-	if( (a > b) && (to & 0x08) ) {
-		exception = 1;
-	}
-	if( (a == b) && (to & 0x04) ) {
-		exception = 1;
-	}
-	if( ((UINT32)a < (UINT32)b) && (to & 0x02) ) {
-		exception = 1;
-	}
-	if( ((UINT32)a > (UINT32)b) && (to & 0x01) ) {
+	if(( (a < b) && (to & 0x10) ) ||
+	   ( (a > b) && (to & 0x08) ) ||
+	   ( (a == b) && (to & 0x04) ) ||
+	   ( ((UINT32)a < (UINT32)b) && (to & 0x02) ) ||
+	   ( ((UINT32)a > (UINT32)b) && (to & 0x01) )) {
 		exception = 1;
 	}
 
@@ -1507,19 +1485,11 @@ static void ppc_twi(UINT32 op)
 	INT32 i = SIMM16;
 	int to = RT;
 
-	if( (a < i) && (to & 0x10) ) {
-		exception = 1;
-	}
-	if( (a > i) && (to & 0x08) ) {
-		exception = 1;
-	}
-	if( (a == i) && (to & 0x04) ) {
-		exception = 1;
-	}
-	if( ((UINT32)a < (UINT32)i) && (to & 0x02) ) {
-		exception = 1;
-	}
-	if( ((UINT32)a > (UINT32)i) && (to & 0x01) ) {
+	if(( (a < i) && (to & 0x10) ) ||
+	   ( (a > i) && (to & 0x08) ) ||
+	   ( (a == i) && (to & 0x04) ) ||
+	   ( ((UINT32)a < (UINT32)i) && (to & 0x02) ) ||
+	   ( ((UINT32)a > (UINT32)i) && (to & 0x01) )) {
 		exception = 1;
 	}
 
@@ -1567,54 +1537,8 @@ static void ppc_invalid(UINT32 op)
   Floating point operations.
 */
 
-/*************************OLD
-INLINE int is_nan_double(FPR x)
-{
-	return( ((x.id & DOUBLE_EXP) == DOUBLE_EXP) &&
-			((x.id & DOUBLE_FRAC) != DOUBLE_ZERO) );
-}
-
-INLINE int is_qnan_double(FPR x)
-{
-	return( ((x.id & DOUBLE_EXP) == DOUBLE_EXP) &&
-			((x.id & 0x0007fffffffffff) == 0x000000000000000) &&
-			((x.id & 0x000800000000000) == 0x000800000000000) );
-}
-
-INLINE int is_snan_double(FPR x)
-{
-	return( ((x.id & DOUBLE_EXP) == DOUBLE_EXP) &&
-			((x.id & DOUBLE_FRAC) != DOUBLE_ZERO) &&
-			((x.id & 0x0008000000000000) == DOUBLE_ZERO) );
-}
-
-INLINE int is_infinity_double(FPR x)
-{
-	return( ((x.id & DOUBLE_EXP) == DOUBLE_EXP) &&
-			((x.id & DOUBLE_FRAC) == DOUBLE_ZERO) );
-}
-
-INLINE int is_normalized_double(FPR x)
-{
-	UINT64 exp;
-
-	exp = (x.id & DOUBLE_EXP) >> 52;
-
-	return (exp >= 1) && (exp <= 2046);
-}
-
-INLINE int is_denormalized_double(FPR x)
-{
-	return( ((x.id & DOUBLE_EXP) == 0) &&
-			((x.id & DOUBLE_FRAC) != DOUBLE_ZERO) );
-}
-
-INLINE int sign_double(FPR x)
-{
-	return ((x.id & DOUBLE_SIGN) != 0);
-}
-
-INLINE INT64 round_to_nearest(FPR f)
+/* UNUSED
+inline INT64 round_to_nearest(FPR f)
 {
 	//return (INT64)(f.fd + 0.5);
 	if (f.fd >= 0)
@@ -1627,74 +1551,96 @@ INLINE INT64 round_to_nearest(FPR f)
 	}
 }
 
-INLINE INT64 round_toward_zero(FPR f)
+inline INT64 round_toward_zero(FPR f)
 {
 	return (INT64)(f.fd);
 }
 
-INLINE INT64 round_toward_positive_infinity(FPR f)
+inline INT64 round_toward_positive_infinity(FPR f)
 {
 	double r = ceil(f.fd);
 	return (INT64)(r);
 }
 
-INLINE INT64 round_toward_negative_infinity(FPR f)
+inline INT64 round_toward_negative_infinity(FPR f)
 {
 	double r = floor(f.fd);
 	return (INT64)(r);
 }
 */
 
-
-// New below, based on changes in MAME
-INLINE int is_nan_double(FPR x)
+// the following operations/functions CAN BREAK if fast math compiler options (i.e. finite math only) are enabled.
+// std::isnan is definetly ignored by GCC/clang then, and there are even fancier compiler heuristics that
+// can detect the bit fiddling ops to detect infinity, nan and denorms and then even may ignore these!
+// (the latter currently (2024) the case in non-production/experimental clang builds)
+inline bool is_nan_double(FPR x)
 {
-	return( ((x.id & DOUBLE_EXP) == DOUBLE_EXP) &&
-			((x.id & DOUBLE_FRAC) != DOUBLE_ZERO) );
+	return std::isnan(x.fd);
 }
 
-INLINE int is_qnan_double(FPR x)
+inline bool is_qnan_double(FPR x)
 {
-	return( ((x.id & DOUBLE_EXP) == DOUBLE_EXP) &&
-			((x.id & 0x0007fffffffffffULL) == 0x000000000000000ULL) &&
-			((x.id & 0x000800000000000ULL) == 0x000800000000000ULL) );
+	UINT64 expfrac = (x.id & (DOUBLE_EXP | DOUBLE_FRAC));
+	return (expfrac >= (DOUBLE_EXP | 0x0008000000000000ULL));
 }
 
-INLINE int is_snan_double(FPR x)
+inline bool is_snan_double(FPR x)
 {
-	return( ((x.id & DOUBLE_EXP) == DOUBLE_EXP) &&
-			((x.id & DOUBLE_FRAC) != DOUBLE_ZERO) &&
-			((x.id & (0x0008000000000000ULL)) == DOUBLE_ZERO) );
+	UINT64 expfrac = (x.id & (DOUBLE_EXP | DOUBLE_FRAC));
+	return ((expfrac > DOUBLE_EXP) && (expfrac < (DOUBLE_EXP | 0x0008000000000000ULL)));
 }
 
-INLINE int is_infinity_double(FPR x)
+inline bool is_infinity_double(FPR x)
 {
-	return( ((x.id & DOUBLE_EXP) == DOUBLE_EXP) &&
-			((x.id & DOUBLE_FRAC) == DOUBLE_ZERO) );
+	return ((x.id & (DOUBLE_EXP | DOUBLE_FRAC)) == DOUBLE_EXP);
 }
 
-INLINE int is_normalized_double(FPR x)
+inline bool is_normalized_double(FPR x)
 {
-	UINT64 exp;
-
-	exp = (x.id & DOUBLE_EXP) >> 52;
-
-	return (exp >= 1) && (exp <= 2046);
+	UINT64 exp = (x.id & DOUBLE_EXP);
+	return ((exp > 0) && (exp <= (2046ull << 52)));
 }
 
-INLINE int is_denormalized_double(FPR x)
+inline bool is_denormalized_double(FPR x)
 {
-	return( ((x.id & DOUBLE_EXP) == 0) &&
-			((x.id & DOUBLE_FRAC) != DOUBLE_ZERO) );
+	UINT64 expfrac = (x.id & (DOUBLE_EXP | DOUBLE_FRAC));
+	return ((expfrac > 0) && (expfrac <= DOUBLE_FRAC));
 }
 
-INLINE int sign_double(FPR x)
+inline bool sign_double(FPR x)
 {
-	return ((x.id & DOUBLE_SIGN) != 0);
+	return (x.id >> 63);
 }
 
-INLINE INT64 smround_to_nearest(FPR f)
+// in theory the following 2 functions require compiler options to work correctly
+//  -frounding-math for GCC
+//   GCC and clang can show weird behavior nevertheless according to various threads on the net
+//  /fp:strict for MS Visual Studio/C++
+//   here we use a set of pragmas at the beginning of the file instead (to steer selective behavior for just this file)
+// 
+// unknown if any games actually change this, at least its extremely rare for Model3
+
+// we just 'cache' FE_TONEAREST, as other math functions that are called
+// by other code inbetween PPC emulation could be influenced in a bad way,
+// as these may expect FE_TONEAREST to be set
+inline void init_rounding_mode(void)
 {
+	static constexpr unsigned int rounding_mode[4] = {FE_TONEAREST,FE_TOWARDZERO,FE_UPWARD,FE_DOWNWARD};
+
+	if ((ppc.fpscr & 3) != 0) // rounding mode not nearest?
+		fesetround(rounding_mode[ppc.fpscr & 3]);
+}
+
+inline void restore_rounding_mode(void)
+{
+	if ((ppc.fpscr & 3) != 0) // rounding mode not nearest?
+		fesetround(FE_TONEAREST);
+}
+
+/*
+inline INT64 smround_to_nearest(FPR f)
+{
+	// This method is incorrect; it ties away from zero, while PowerPC ties to even
 	if (f.fd >= 0)
 	{
 		return (INT64)(f.fd + 0.5);
@@ -1705,27 +1651,28 @@ INLINE INT64 smround_to_nearest(FPR f)
 	}
 }
 
-INLINE INT64 smround_toward_zero(FPR f)
+inline INT64 smround_toward_zero(FPR f)
 {
 	return (INT64)(f.fd);
 }
 
-INLINE INT64 round_toward_positive_infinity(FPR f)
+inline INT64 round_toward_positive_infinity(FPR f)
 {
 	double r = ceil(f.fd);
 	return (INT64)(r);
 }
 
-INLINE INT64 round_toward_negative_infinity(FPR f)
+inline INT64 round_toward_negative_infinity(FPR f)
 {
 	double r = floor(f.fd);
 	return (INT64)(r);
 }
+*/
 
 #define SET_VXSNAN(a, b)    if (is_snan_double(a) || is_snan_double(b)) ppc.fpscr |= 0x80000000
 #define SET_VXSNAN_1(c)     if (is_snan_double(c)) ppc.fpscr |= 0x80000000
 
-INLINE void set_fprf(FPR f)
+inline void set_fprf(FPR f)
 {
 	UINT32 fprf;
 
@@ -2108,11 +2055,15 @@ static void ppc_faddx(UINT32 op)
 
 	CHECK_FPU_AVAILABLE();
 
-    SET_VXSNAN(FPR(a), FPR(b));
+	SET_VXSNAN(FPR(a), FPR(b));
+
+	init_rounding_mode();
 
 	FPR(t).fd = FPR(a).fd + FPR(b).fd;
 
-    set_fprf(FPR(t));
+	restore_rounding_mode();
+
+	set_fprf(FPR(t));
 	if( RCBIT ) {
 		SET_CR1();
 	}
@@ -2166,9 +2117,9 @@ static void ppc_fcmpu(UINT32 op)
 
 	CHECK_FPU_AVAILABLE();
 
-    SET_VXSNAN(FPR(a), FPR(b));
+	SET_VXSNAN(FPR(a), FPR(b));
 
-    if(is_nan_double(FPR(a)) || is_nan_double(FPR(b)))
+	if(is_nan_double(FPR(a)) || is_nan_double(FPR(b)))
 	{
 		c = 1; /* OX */
 		if(is_snan_double(FPR(a)) || is_snan_double(FPR(b))) {
@@ -2197,38 +2148,38 @@ static void ppc_fctiwx(UINT32 op)
 	UINT32 b = RB;
 	UINT32 t = RT;
 	INT64 r = 0;
-	
+
 	// TODO: fix FPSCR flags FX,VXSNAN,VXCVI
 
 	CHECK_FPU_AVAILABLE();
 
-    SET_VXSNAN_1(FPR(b));
+	SET_VXSNAN_1(FPR(b));
 
 	switch(ppc.fpscr & 3)
 	{
-		case 0: r = (INT64)smround_to_nearest(FPR(b)); break;
-		case 1: r = (INT64)smround_toward_zero(FPR(b)); break;
-		case 2: r = (INT64)round_toward_positive_infinity(FPR(b)); break;
-		case 3: r = (INT64)round_toward_negative_infinity(FPR(b)); break;
+		case 0: init_rounding_mode(); r = (INT64)nearbyint(FPR(b).fd); restore_rounding_mode(); break;
+		case 1: r = (INT64)trunc(FPR(b).fd); break;
+		case 2: r = (INT64)ceil(FPR(b).fd); break;
+		case 3: r = (INT64)floor(FPR(b).fd); break;
 	}
 
-    if(r > (INT64)((INT32)0x7FFFFFFF))
+	if(r > (INT64)((INT32)0x7FFFFFFF))
 	{
-		FPR(t).id = 0x7FFFFFFF;
+		FPR(t).id = (INT64)((INT32)0x7FFFFFFF);
 		// FPSCR[FR] = 0
 		// FPSCR[FI] = 1
 		// FPSCR[XX] = 1
 	}
-	else if(FPR(b).fd < (INT64)((INT32)0x80000000))
+	else if(r < (INT64)((INT32)0x80000000))
 	{
-		FPR(t).id = 0x80000000;		
+		FPR(t).id = (INT64)((INT32)0x80000000);
 		// FPSCR[FR] = 1
 		// FPSCR[FI] = 1
 		// FPSCR[XX] = 1
 	}
 	else
 	{
-		FPR(t).id = (UINT32)(r);
+		FPR(t).id = (UINT32)r;
 		// FPSCR[FR] = t.iw > t.fd
 		// FPSCR[FI] = t.iw == t.fd
 		// FPSCR[XX] = ?
@@ -2250,12 +2201,12 @@ static void ppc_fctiwzx(UINT32 op)
 
 	CHECK_FPU_AVAILABLE();
 
-    SET_VXSNAN_1(FPR(b));
-	r = smround_toward_zero(FPR(b));
+	SET_VXSNAN_1(FPR(b));
+	r = (INT64)trunc(FPR(b).fd);
 
-    if(r > (INT64)((INT32)0x7fffffff))
+	if(r > (INT64)((INT32)0x7FFFFFFF))
 	{
-		FPR(t).id = 0x7fffffff;		
+		FPR(t).id = (INT64)((INT32)0x7FFFFFFF);
 		// FPSCR[FR] = 0
 		// FPSCR[FI] = 1
 		// FPSCR[XX] = 1
@@ -2263,7 +2214,7 @@ static void ppc_fctiwzx(UINT32 op)
 	}
 	else if(r < (INT64)((INT32)0x80000000))
 	{
-		FPR(t).id = 0x80000000;		
+		FPR(t).id = (INT64)((INT32)0x80000000);
 		// FPSCR[FR] = 1
 		// FPSCR[FI] = 1
 		// FPSCR[XX] = 1
@@ -2290,11 +2241,15 @@ static void ppc_fdivx(UINT32 op)
 
 	CHECK_FPU_AVAILABLE();
 
-    SET_VXSNAN(FPR(a), FPR(b));
+	SET_VXSNAN(FPR(a), FPR(b));
 
-    FPR(t).fd = FPR(a).fd / FPR(b).fd;
+	init_rounding_mode();
 
-    set_fprf(FPR(t));
+	FPR(t).fd = FPR(a).fd / FPR(b).fd;
+
+	restore_rounding_mode();
+
+	set_fprf(FPR(t));
 	if( RCBIT ) {
 		SET_CR1();
 	}
@@ -2349,11 +2304,11 @@ static void ppc_frspx(UINT32 op)
 
 	CHECK_FPU_AVAILABLE();
 
-    SET_VXSNAN_1(FPR(b));
+	SET_VXSNAN_1(FPR(b));
 
 	FPR(t).fd = (float)FPR(b).fd;
 
-    set_fprf(FPR(t));
+	set_fprf(FPR(t));
 	if( RCBIT ) {
 		SET_CR1();
 	}
@@ -2366,11 +2321,15 @@ static void ppc_frsqrtex(UINT32 op)
 
 	CHECK_FPU_AVAILABLE();
 
-    SET_VXSNAN_1(FPR(b));
+	SET_VXSNAN_1(FPR(b));
 
-	FPR(t).fd = 1.0 / sqrt(FPR(b).fd);	/* verify this */		
-    
-    set_fprf(FPR(t));
+	init_rounding_mode();
+
+	FPR(t).fd = 1.0 / sqrt(FPR(b).fd);  /* verify this */
+
+	restore_rounding_mode();
+
+	set_fprf(FPR(t));
 	if( RCBIT ) {
 		SET_CR1();
 	}
@@ -2384,11 +2343,15 @@ static void ppc_fsqrtx(UINT32 op)
 
 	CHECK_FPU_AVAILABLE();
 
-    SET_VXSNAN_1(FPR(b));
+	SET_VXSNAN_1(FPR(b));
 
-	FPR(t).fd = (double)(sqrt(FPR(b).fd));
+	init_rounding_mode();
 
-    set_fprf(FPR(t));
+	FPR(t).fd = sqrt(FPR(b).fd);
+
+	restore_rounding_mode();
+
+	set_fprf(FPR(t));
 	if( RCBIT ) {
 		SET_CR1();
 	}
@@ -2402,11 +2365,15 @@ static void ppc_fsubx(UINT32 op)
 
 	CHECK_FPU_AVAILABLE();
 
-    SET_VXSNAN(FPR(a), FPR(b));
+	SET_VXSNAN(FPR(a), FPR(b));
+
+	init_rounding_mode();
 
 	FPR(t).fd = FPR(a).fd - FPR(b).fd;
 
-    set_fprf(FPR(t));
+	restore_rounding_mode();
+
+	set_fprf(FPR(t));
 	if( RCBIT ) {
 		SET_CR1();
 	}
@@ -2423,28 +2390,28 @@ static void ppc_mffsx(UINT32 op)
 
 static void ppc_mtfsb0x(UINT32 op)
 {
-    UINT32 crbD;
+	UINT32 crbD;
 
-    crbD = (op >> 21) & 0x1F;
+	crbD = (op >> 21) & 0x1F;
 
-    if (crbD != 1 && crbD != 2) // these bits cannot be explicitly cleared
-        ppc.fpscr &= ~(1 << (31 - crbD));
+	if (crbD != 1 && crbD != 2) // these bits cannot be explicitly cleared
+		ppc.fpscr &= ~(1 << (31 - crbD));
 
-    if( RCBIT ) {
+	if( RCBIT ) {
 		SET_CR1();
 	}
 }
 
 static void ppc_mtfsb1x(UINT32 op)
 {
-    UINT32 crbD;
+	UINT32 crbD;
 
-    crbD = (op >> 21) & 0x1F;
+	crbD = (op >> 21) & 0x1F;
 
-    if (crbD != 1 && crbD != 2) // these bits cannot be explicitly cleared
-        ppc.fpscr |= (1 << (31 - crbD));
+	if (crbD != 1 && crbD != 2) // these bits cannot be explicitly cleared
+		ppc.fpscr |= (1 << (31 - crbD));
 
-    if( RCBIT ) {
+	if( RCBIT ) {
 		SET_CR1();
 	}
 }
@@ -2452,9 +2419,7 @@ static void ppc_mtfsb1x(UINT32 op)
 static void ppc_mtfsfx(UINT32 op)
 {
 	UINT32 b = RB;
-	UINT32 f = FM;
-
-	f = ppc_field_xlat[FM];
+	UINT32 f = ppc_field_xlat[FM];
 
 	ppc.fpscr &= (~f) | ~(FPSCR_FEX | FPSCR_VX);
 	ppc.fpscr |= (UINT32)(FPR(b).id) & ~(FPSCR_FEX | FPSCR_VX);
@@ -2540,7 +2505,11 @@ static void ppc_faddsx(UINT32 op)
 
 	SET_VXSNAN(FPR(a), FPR(b));
 
+	init_rounding_mode();
+
 	FPR(t).fd = (float)(FPR(a).fd + FPR(b).fd);
+
+	restore_rounding_mode();
 
 	set_fprf(FPR(t));
 	if( RCBIT ) {
@@ -2558,7 +2527,11 @@ static void ppc_fdivsx(UINT32 op)
 
 	SET_VXSNAN(FPR(a), FPR(b));
 
+	init_rounding_mode();
+
 	FPR(t).fd = (float)(FPR(a).fd / FPR(b).fd);
+
+	restore_rounding_mode();
 
 	set_fprf(FPR(t));
 	if( RCBIT ) {
@@ -2575,7 +2548,12 @@ static void ppc_fresx(UINT32 op)
 
 	SET_VXSNAN_1(FPR(b));
 
-	FPR(t).fd = 1.0 / FPR(b).fd; /* ??? */
+	init_rounding_mode();
+
+	// On the 603 fres behaves the same as fdivs RT, 1.0, RB
+	FPR(t).fd = (float)(1.0 / FPR(b).fd);
+
+	restore_rounding_mode();
 
 	set_fprf(FPR(t));
 	if( RCBIT ) {
@@ -2591,11 +2569,15 @@ static void ppc_fsqrtsx(UINT32 op)
 
 	CHECK_FPU_AVAILABLE();
 
-    SET_VXSNAN_1(FPR(b));
+	SET_VXSNAN_1(FPR(b));
+
+	init_rounding_mode();
 
 	FPR(t).fd = (float)(sqrt(FPR(b).fd));
 
-    set_fprf(FPR(t));
+	restore_rounding_mode();
+
+	set_fprf(FPR(t));
 	if( RCBIT ) {
 		SET_CR1();
 	}
@@ -2609,11 +2591,15 @@ static void ppc_fsubsx(UINT32 op)
 
 	CHECK_FPU_AVAILABLE();
 
-    SET_VXSNAN(FPR(a), FPR(b));
+	SET_VXSNAN(FPR(a), FPR(b));
+
+	init_rounding_mode();
 
 	FPR(t).fd = (float)(FPR(a).fd - FPR(b).fd);
 
-    set_fprf(FPR(t));
+	restore_rounding_mode();
+
+	set_fprf(FPR(t));
 	if( RCBIT ) {
 		SET_CR1();
 	}
@@ -2628,12 +2614,16 @@ static void ppc_fmaddx(UINT32 op)
 
 	CHECK_FPU_AVAILABLE();
 
-    SET_VXSNAN(FPR(a), FPR(b));
-    SET_VXSNAN_1(FPR(c));
+	SET_VXSNAN(FPR(a), FPR(b));
+	SET_VXSNAN_1(FPR(c));
+
+	init_rounding_mode();
 
 	FPR(t).fd = ((FPR(a).fd * FPR(c).fd) + FPR(b).fd);
 
-    set_fprf(FPR(t));
+	restore_rounding_mode();
+
+	set_fprf(FPR(t));
 	if( RCBIT ) {
 		SET_CR1();
 	}
@@ -2648,12 +2638,16 @@ static void ppc_fmsubx(UINT32 op)
 
 	CHECK_FPU_AVAILABLE();
 
-    SET_VXSNAN(FPR(a), FPR(b));
-    SET_VXSNAN_1(FPR(c));
+	SET_VXSNAN(FPR(a), FPR(b));
+	SET_VXSNAN_1(FPR(c));
 
-    FPR(t).fd = ((FPR(a).fd * FPR(c).fd) - FPR(b).fd);
+	init_rounding_mode();
 
-    set_fprf(FPR(t));
+	FPR(t).fd = ((FPR(a).fd * FPR(c).fd) - FPR(b).fd);
+
+	restore_rounding_mode();
+
+	set_fprf(FPR(t));
 	if( RCBIT ) {
 		SET_CR1();
 	}
@@ -2669,7 +2663,11 @@ static void ppc_fmulx(UINT32 op)
 
 	SET_VXSNAN(FPR(a), FPR(c));
 
+	init_rounding_mode();
+
 	FPR(t).fd = (FPR(a).fd * FPR(c).fd);
+
+	restore_rounding_mode();
 
 	set_fprf(FPR(t));
 	if( RCBIT ) {
@@ -2689,7 +2687,11 @@ static void ppc_fnmaddx(UINT32 op)
 	SET_VXSNAN(FPR(a), FPR(b));
 	SET_VXSNAN_1(FPR(c));
 
+	init_rounding_mode();
+
 	FPR(t).fd = (-((FPR(a).fd * FPR(c).fd) + FPR(b).fd));
+
+	restore_rounding_mode();
 
 	set_fprf(FPR(t));
 	if( RCBIT ) {
@@ -2709,7 +2711,11 @@ static void ppc_fnmsubx(UINT32 op)
 	SET_VXSNAN(FPR(a), FPR(b));
 	SET_VXSNAN_1(FPR(c));
 
+	init_rounding_mode();
+
 	FPR(t).fd = (-((FPR(a).fd * FPR(c).fd) - FPR(b).fd));
+
+	restore_rounding_mode();
 
 	set_fprf(FPR(t));
 	if( RCBIT ) {
@@ -2726,7 +2732,7 @@ static void ppc_fselx(UINT32 op)
 
 	CHECK_FPU_AVAILABLE();
 
-	FPR(t).fd = (FPR(a).fd >= 0.0) ? FPR(c).fd : FPR(b).fd;
+	FPR(t).fd = (is_nan_double(FPR(a)) || FPR(a).fd < 0.0) ? FPR(b).fd : FPR(c).fd; // do not just sign check, as -0.0 also counts as +0.0
 
 	if( RCBIT ) {
 		SET_CR1();
@@ -2745,7 +2751,11 @@ static void ppc_fmaddsx(UINT32 op)
 	SET_VXSNAN(FPR(a), FPR(b));
 	SET_VXSNAN_1(FPR(c));
 
-	FPR(t).fd = (float)((FPR(a).fd * FPR(c).fd) + FPR(b).fd);	
+	init_rounding_mode();
+
+	FPR(t).fd = (float)((FPR(a).fd * FPR(c).fd) + FPR(b).fd);
+
+	restore_rounding_mode();
 
 	set_fprf(FPR(t));
 	if( RCBIT ) {
@@ -2765,7 +2775,11 @@ static void ppc_fmsubsx(UINT32 op)
 	SET_VXSNAN(FPR(a), FPR(b));
 	SET_VXSNAN_1(FPR(c));
 
+	init_rounding_mode();
+
 	FPR(t).fd = (float)((FPR(a).fd * FPR(c).fd) - FPR(b).fd);
+
+	restore_rounding_mode();
 
 	set_fprf(FPR(t));
 	if( RCBIT ) {
@@ -2782,7 +2796,11 @@ static void ppc_fmulsx(UINT32 op)
 	CHECK_FPU_AVAILABLE();
 	SET_VXSNAN(FPR(a), FPR(c));
 
+	init_rounding_mode();
+
 	FPR(t).fd = (float)(FPR(a).fd * FPR(c).fd);
+
+	restore_rounding_mode();
 
 	set_fprf(FPR(t));
 	if( RCBIT ) {
@@ -2802,7 +2820,11 @@ static void ppc_fnmaddsx(UINT32 op)
 	SET_VXSNAN(FPR(a), FPR(b));
 	SET_VXSNAN_1(FPR(c));
 
-    FPR(t).fd = (float)(-((FPR(a).fd * FPR(c).fd) + FPR(b).fd));
+	init_rounding_mode();
+
+	FPR(t).fd = (float)(-((FPR(a).fd * FPR(c).fd) + FPR(b).fd));
+
+	restore_rounding_mode();
 
 	set_fprf(FPR(t));
 	if( RCBIT ) {
@@ -2822,7 +2844,11 @@ static void ppc_fnmsubsx(UINT32 op)
 	SET_VXSNAN(FPR(a), FPR(b));
 	SET_VXSNAN_1(FPR(c));
 
+	init_rounding_mode();
+
 	FPR(t).fd = (float)(-((FPR(a).fd * FPR(c).fd) - FPR(b).fd));
+
+	restore_rounding_mode();
 
 	set_fprf(FPR(t));
 	if( RCBIT ) {
