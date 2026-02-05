@@ -1,15 +1,27 @@
 #Set the path to the core's libretro-common directory here
-LIBRETRO_COMM_DIR := $(CORE_DIR)/Src/OSD/libretro/libretro-common
 
-INCFLAGS       :=
+LIBRETRO_COMM_DIR := $(CORE_DIR)/Src/OSD/libretro/libretro-common
+DEPS_DIR     := $(CORE_DIR)/deps
+
+INCFLAGS		:= 	-I$(CORE_DIR) \
+					-I$(DEPS_DIR)/ugui
 
 #Uncomment this to include the libretro-common include directory
-INCFLAGS      += -I$(LIBRETRO_COMM_DIR)/include
-INCFLAGS       += -I$(CORE_DIR)/Src/OSD/libretro \
-						-I$(CORE_DIR)/Src \
-						-I$(CORE_DIR)/Src/CPU/68K/Musashi \
-						-I$(CORE_DIR)/Src/CPU/68K/Musashi/generated
-COREDEFINES    = -D__LIBRETRO__
+INCFLAGS      	+= 	-I$(LIBRETRO_COMM_DIR)/include
+INCFLAGS       	+= 	-I$(CORE_DIR)/Src/OSD/libretro \
+					-I$(CORE_DIR)/Src \
+					-I$(CORE_DIR)/Src/CPU/68K/Musashi \
+					-I$(CORE_DIR)/Src/CPU/68K/Musashi/generated \
+
+ifneq (,$(findstring msvc,$(platform)))
+   INCFLAGS += -I$(CORE_DIR)/msvc
+endif
+
+SOURCES_C += $(DEPS_DIR)/ugui/ugui.c \
+               $(CORE_DIR)/ugui_tools.c
+
+
+COREDEFINES    = -D__LIBRETRO__ -DSUPERMODEL_OSD_LIBRETRO
 
 INCLUDE_STDINT = 0
 ifneq (,$(findstring msvc2003,$(platform)))
@@ -37,12 +49,37 @@ COREDEFINES += -DPSS_STYLE=1
 endif
 
 # Add C sourcecode files to this
-SOURCES_C     := $(CORE_DIR)/Src/Pkgs/unzip.c \
-					  $(CORE_DIR)/Src/Pkgs/ioapi.c \
-					  $(CORE_DIR)/Src/CPU/68K/Musashi/m68kcpu.c \
-					  $(CORE_DIR)/Src/CPU/68K/Musashi/generated/m68kops.c
+SOURCES_C    := $(CORE_DIR)/Src/Pkgs/unzip.c \
+             	$(CORE_DIR)/Src/Pkgs/ioapi.c \
+             	$(CORE_DIR)/Src/CPU/68K/Musashi/m68kcpu.c \
+             	$(CORE_DIR)/Src/CPU/68K/Musashi/generated/m68kops.c \
+             	$(CORE_DIR)/Src/CPU/68K/Musashi/generated/m68kopac.c \
+             	$(CORE_DIR)/Src/CPU/68K/Musashi/generated/m68kopdm.c \
+             	$(CORE_DIR)/Src/CPU/68K/Musashi/generated/m68kopnz.c
+
+SOURCES_C += 	$(DEPS_DIR)/ugui/ugui.c \
+               	$(CORE_DIR)/Src/ugui_tools.c
 
 #SOURCES_C     += $(CORE_DIR)/Src/Pkgs/glew.c
+
+
+
+SOURCES_C   += 	$(LIBRETRO_COMM_DIR)/streams/file_stream.c \
+				$(LIBRETRO_COMM_DIR)/streams/file_stream_transforms.c \
+				$(LIBRETRO_COMM_DIR)/file/file_path.c \
+				$(LIBRETRO_COMM_DIR)/file/retro_dirent.c \
+				$(LIBRETRO_COMM_DIR)/vfs/vfs_implementation.c \
+				$(LIBRETRO_COMM_DIR)/lists/dir_list.c \
+				$(LIBRETRO_COMM_DIR)/lists/string_list.c \
+				$(LIBRETRO_COMM_DIR)/string/stdstring.c \
+				$(LIBRETRO_COMM_DIR)/compat/compat_strl.c \
+				$(LIBRETRO_COMM_DIR)/compat/fopen_utf8.c \
+				$(LIBRETRO_COMM_DIR)/compat/compat_strcasestr.c \
+				$(LIBRETRO_COMM_DIR)/compat/compat_posix_string.c \
+				$(LIBRETRO_COMM_DIR)/encodings/encoding_utf.c \
+				$(LIBRETRO_COMM_DIR)/memmap/memalign.c \
+				$(LIBRETRO_COMM_DIR)/time/rtime.c \
+				$(LIBRETRO_COMM_DIR)/hash/rhash.c
 
 # Add C++ sourcecode files to this
 SOURCES_CXX   := \
@@ -50,32 +87,41 @@ SOURCES_CXX   := \
 					  $(CORE_DIR)/Src/BlockFile.cpp \
 					  $(CORE_DIR)/Src/Model3/93C46.cpp \
 					  $(CORE_DIR)/Src/Util/BitRegister.cpp \
-					  $(CORE_DIR)/Src/Model3/JTAG.cpp
+					  $(CORE_DIR)/Src/Model3/JTAG.cpp \
+					  $(CORE_DIR)/Src/Pkgs/imgui/imgui.cpp \
+					  $(CORE_DIR)/Src/Pkgs/imgui/imgui_draw.cpp \
+					  $(CORE_DIR)/Src/Pkgs/imgui/imgui_tables.cpp \
+					  $(CORE_DIR)/Src/Pkgs/imgui/imgui_widgets.cpp \
+					  $(CORE_DIR)/Src/Pkgs/imgui/imgui_impl_sdl2.cpp \
+					  $(CORE_DIR)/Src/Pkgs/imgui/imgui_impl_opengl3.cpp
 
 # Legacy3D - commented out for now
-#SOURCES_CXX +=  $(CORE_DIR)/Src/Graphics/Legacy3D/Error.cpp
+SOURCES_CXX +=  $(CORE_DIR)/Src/Graphics/Legacy3D/Error.cpp
 
 SOURCES_CXX +=   \
 					  $(CORE_DIR)/Src/Graphics/Shader.cpp \
 					  $(CORE_DIR)/Src/Model3/Real3D.cpp
 
 # Legacy3D - commented out for now
-#SOURCES_CXX +=  $(CORE_DIR)/Src/Graphics/Legacy3D/Legacy3D.cpp \
-					  $(CORE_DIR)/Src/Graphics/Legacy3D/Models.cpp \
-					  $(CORE_DIR)/Src/Graphics/Legacy3D/TextureRefs.cpp
+SOURCES_CXX +=  $(CORE_DIR)/Src/Graphics/Legacy3D/Legacy3D.cpp \
+				$(CORE_DIR)/Src/Graphics/Legacy3D/Models.cpp \
+				$(CORE_DIR)/Src/Graphics/Legacy3D/TextureRefs.cpp \
 
 SOURCES_CXX +=   \
 					  $(CORE_DIR)/Src/Graphics/New3D/New3D.cpp \
 					  $(CORE_DIR)/Src/Graphics/New3D/Mat4.cpp \
 					  $(CORE_DIR)/Src/Graphics/New3D/Model.cpp \
 					  $(CORE_DIR)/Src/Graphics/New3D/PolyHeader.cpp \
-					  $(CORE_DIR)/Src/Graphics/New3D/Texture.cpp \
-					  $(CORE_DIR)/Src/Graphics/New3D/TextureSheet.cpp \
+					  $(CORE_DIR)/Src/Graphics/New3D/TextureBank.cpp \
 					  $(CORE_DIR)/Src/Graphics/New3D/VBO.cpp \
 					  $(CORE_DIR)/Src/Graphics/New3D/Vec.cpp \
 					  $(CORE_DIR)/Src/Graphics/New3D/R3DShader.cpp \
 					  $(CORE_DIR)/Src/Graphics/New3D/R3DFloat.cpp \
 					  $(CORE_DIR)/Src/Graphics/New3D/R3DScrollFog.cpp \
+					  $(CORE_DIR)/Src/Graphics/New3D/R3DFrameBuffers.cpp \
+					  $(CORE_DIR)/Src/Graphics/New3D/GLSLShader.cpp \
+					  $(CORE_DIR)/Src/Graphics/FBO.cpp \
+					  $(CORE_DIR)/Src/Graphics/SuperAA.cpp \
 					  $(CORE_DIR)/Src/Graphics/Render2D.cpp \
 					  $(CORE_DIR)/Src/Model3/TileGen.cpp \
 					  $(CORE_DIR)/Src/Model3/Model3.cpp \
@@ -92,7 +138,11 @@ SOURCES_CXX +=   \
 					  $(CORE_DIR)/Src/Model3/53C810.cpp \
 					  $(CORE_DIR)/Src/Model3/PCI.cpp \
 					  $(CORE_DIR)/Src/Model3/RTC72421.cpp \
-					  $(CORE_DIR)/Src/Model3/DriveBoard.cpp \
+					  $(CORE_DIR)/Src/Model3/DriveBoard/DriveBoard.cpp \
+					  $(CORE_DIR)/Src/Model3/DriveBoard/WheelBoard.cpp \
+					  $(CORE_DIR)/Src/Model3/DriveBoard/JoystickBoard.cpp \
+					  $(CORE_DIR)/Src/Model3/DriveBoard/SkiBoard.cpp \
+					  $(CORE_DIR)/Src/Model3/DriveBoard/BillBoard.cpp \
 					  $(CORE_DIR)/Src/Model3/MPC10x.cpp \
 					  $(CORE_DIR)/Src/Inputs/Input.cpp \
 					  $(CORE_DIR)/Src/Inputs/Inputs.cpp \
@@ -100,21 +150,10 @@ SOURCES_CXX +=   \
 					  $(CORE_DIR)/Src/Inputs/InputSystem.cpp \
 					  $(CORE_DIR)/Src/Inputs/InputTypes.cpp \
 					  $(CORE_DIR)/Src/Inputs/MultiInputSource.cpp \
-					  $(CORE_DIR)/Src/OSD/libretro/Thread.cpp \
 					  $(CORE_DIR)/Src/OSD/Outputs.cpp
 
 SOURCES_CXX +=   \
-					  $(CORE_DIR)/Src/Sound/MPEG/amp_audio.cpp \
-					  $(CORE_DIR)/Src/Sound/MPEG/dump.cpp \
-					  $(CORE_DIR)/Src/Sound/MPEG/getbits.cpp \
-					  $(CORE_DIR)/Src/Sound/MPEG/getdata.cpp \
-					  $(CORE_DIR)/Src/Sound/MPEG/huffman.cpp \
-					  $(CORE_DIR)/Src/Sound/MPEG/layer2.cpp \
-					  $(CORE_DIR)/Src/Sound/MPEG/layer3.cpp \
-					  $(CORE_DIR)/Src/Sound/MPEG/misc2.cpp \
-					  $(CORE_DIR)/Src/Sound/MPEG/position.cpp \
-					  $(CORE_DIR)/Src/Sound/MPEG/transform.cpp \
-					  $(CORE_DIR)/Src/Sound/MPEG/util.cpp \
+					  $(CORE_DIR)/Src/Sound/MPEG/MpegAudio.cpp \
 					  $(CORE_DIR)/Src/Model3/Crypto.cpp \
 					  $(CORE_DIR)/Src/OSD/Logger.cpp \
 					  $(CORE_DIR)/Src/Util/Format.cpp \
@@ -125,6 +164,18 @@ SOURCES_CXX +=   \
 					  $(CORE_DIR)/Src/Pkgs/tinyxml2.cpp \
 					  $(CORE_DIR)/Src/ROMSet.cpp
 
+SOURCES_CXX += 		  $(CORE_DIR)/Src/OSD/SDL/Audio.cpp \
+					  $(CORE_DIR)/Src/OSD/SDL/Thread.cpp \
+					  $(CORE_DIR)/Src/OSD/Unix/FileSystemPath.cpp \
+				      $(CORE_DIR)/Src/OSD/SDL/Crosshair.cpp \
+					  $(CORE_DIR)/Src/OSD/SDL/Gui.cpp \
+					  $(CORE_DIR)/Src/OSD/SDL/SDLInputSystem.cpp \
+					  $(CORE_DIR)/Src/OSD/libretro/input.cpp \
+					  $(CORE_DIR)/Src/OSD/libretro/LibretroBlockFileMemory.cpp \
+					  $(CORE_DIR)/Src/OSD/libretro/CLibretroInputSystem.cpp \
+					  $(CORE_DIR)/Src/OSD/libretro/LibretroWrapper.cpp \
+					  $(CORE_DIR)/Src/OSD/libretro/libretro.cpp
+	                  
 ifeq ($(NET_BOARD), 1)
 SOURCES_CXX +=   $(CORE_DIR)/Src/Network/NetBoard.cpp \
 					  $(CORE_DIR)/Src/Network/UDPReceive.cpp \
