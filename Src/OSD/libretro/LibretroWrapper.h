@@ -12,14 +12,12 @@
 class LibretroWrapper
 {
 public:
+
     CInputs *Inputs = nullptr;
-
-
-
-
 
     LibretroWrapper();
     virtual ~LibretroWrapper();
+
     unsigned getXRes() const { return xRes; }
     unsigned getYRes() const { return yRes; }
     unsigned getXOffset() const { return xOffset; }
@@ -30,6 +28,10 @@ public:
     SuperAA* getSuperAA() const { return superAA; }
     SDL_Window* getWindow() const { return s_window; }
     CRTcolor getCRTColors() const { return CRTcolors; }
+    Game getGame() const { return game; }
+    IEmulator* getEmulator() const { return Model3; }
+    retro_hw_render_callback getHwRender() const { return hw_render; }
+
     void setXRes(unsigned val) { xRes = val; }
     void setYRes(unsigned val) { yRes = val; }
     void setXOffset(unsigned val) { xOffset = val; }
@@ -40,14 +42,8 @@ public:
     void setSuperAA(SuperAA* val) { superAA = val; }
     void setCRTColors(CRTcolor val) { CRTcolors = val; }
     void setWindow(SDL_Window* window) { s_window = window; }
-    Game getGame() const { return game; }
-    IEmulator* getEmulator() const { return Model3; }
-    retro_hw_render_callback getHwRender() const { return hw_render; }
     void setHwRender(retro_hw_render_callback val) { hw_render = val; }
-    /*
-     * Emulate():
-     * Emulates the game.
-     */
+
     void UpdateScreenSize(unsigned newWidth, unsigned newHeight);
     int Emulate(const char* romPath);
     Result SetGLGeometry(unsigned *xOffsetPtr, unsigned *yOffsetPtr, unsigned *xResPtr, unsigned *yResPtr, unsigned *totalXResPtr, unsigned *totalYResPtr, bool keepAspectRatio);
@@ -61,29 +57,19 @@ public:
     void TestPolygonHeaderBits(IEmulator *Emu);
     int SuperModelInit(const Game &game);
     void ShutDownSupermodel();
+    bool InitRenderers();
     void InitGL();
-private:
-    static const char* s_outputNames[];
-    struct retro_hw_render_callback hw_render;
-    
 
-    /******************************************************************************
-     Display Management
-    ******************************************************************************/
+private:
 
     SDL_Window *s_window = nullptr;
-
-    /*
-    * Position and size of rectangular region within OpenGL display to render to.
-    * Unlike the config tree, these end up containing the actual resolution (and
-    * computed offsets within the viewport) that will be rendered based on what
-    * was obtained from SDL.
-    */
-    unsigned  xOffset, yOffset;         // offset of renderer output within OpenGL viewport
-    unsigned  xRes, yRes;               // renderer output resolution (can be smaller than GL viewport)
-    unsigned  totalXRes, totalYRes;     // total resolution (the whole GL viewport)
-    int aaValue = 1;                    // default is 1 which is no aa
-    CRTcolor CRTcolors;                 // default to no gamma/color adaption being done
+    static const char* s_outputNames[];
+    struct retro_hw_render_callback hw_render;
+    unsigned  xOffset, yOffset;                                         // offset of renderer output within OpenGL viewport
+    unsigned  xRes, yRes;                                               // renderer output resolution (can be smaller than GL viewport)
+    unsigned  totalXRes, totalYRes;                                     // total resolution (the whole GL viewport)
+    int aaValue = 1;                                                    // default is 1 which is no aa
+    CRTcolor CRTcolors;                                                 // default to no gamma/color adaption being done
 
     Game game;
     ROMSet rom_set;

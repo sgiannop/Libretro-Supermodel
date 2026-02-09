@@ -170,7 +170,6 @@ SOURCES_CXX += 		  $(CORE_DIR)/Src/OSD/SDL/Audio.cpp \
 				      $(CORE_DIR)/Src/OSD/SDL/Crosshair.cpp \
 					  $(CORE_DIR)/Src/OSD/SDL/Gui.cpp \
 					  $(CORE_DIR)/Src/OSD/SDL/SDLInputSystem.cpp \
-					  $(CORE_DIR)/Src/OSD/libretro/input.cpp \
 					  $(CORE_DIR)/Src/OSD/libretro/LibretroBlockFileMemory.cpp \
 					  $(CORE_DIR)/Src/OSD/libretro/CLibretroInputSystem.cpp \
 					  $(CORE_DIR)/Src/OSD/libretro/LibretroWrapper.cpp \

@@ -13,7 +13,6 @@ public:
     // Must match EXACTLY the =0 functions in InputSystem.h
     virtual bool InitializeSystem() override;
     virtual bool Poll() override;
-    void DebugPrintDPad();
 
     virtual int GetNumKeyboards() const override { return 1; }
     virtual int GetKeyIndex(const char *keyName) override;

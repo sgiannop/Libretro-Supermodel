@@ -13,45 +13,6 @@ CLibretroInputSystem::CLibretroInputSystem() : CInputSystem("Libretro")
 }
 
 
-
-void CLibretroInputSystem::DebugPrintDPad() {
-    if (!input_poll_cb || !input_state_cb)
-        return;
-
-    // Poll the inputs
-    input_poll_cb();
-
-    const int DEADZONE = 8000;
-
-    for (int joy = 0; joy < 2; joy++) // <-- joy is defined here
-    {
-        // Read analog stick X/Y
-        int16_t x = input_state_cb(joy, RETRO_DEVICE_ANALOG,
-                                   RETRO_DEVICE_INDEX_ANALOG_LEFT,
-                                   RETRO_DEVICE_ID_ANALOG_X);
-        int16_t y = input_state_cb(joy, RETRO_DEVICE_ANALOG,
-                                   RETRO_DEVICE_INDEX_ANALOG_LEFT,
-                                   RETRO_DEVICE_ID_ANALOG_Y);
-
-        // Read digital D-PAD
-        bool up    = input_state_cb(joy, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_UP);
-        bool down  = input_state_cb(joy, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_DOWN);
-        bool left  = input_state_cb(joy, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_LEFT);
-        bool right = input_state_cb(joy, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_RIGHT);
-
-        // Print out values
-        printf("JOY%d: X=%d Y=%d UP=%d DOWN=%d LEFT=%d RIGHT=%d\n",
-               joy, x, y, up, down, left, right);
-
-        // Optionally map analog stick to D-PAD buttons
-        bool analog_up    = y < -DEADZONE;
-        bool analog_down  = y >  DEADZONE;
-        bool analog_left  = x < -DEADZONE;
-        bool analog_right = x >  DEADZONE;
-
-        
-    }
-}
 CLibretroInputSystem::~CLibretroInputSystem() {}
 bool CLibretroInputSystem::Poll()
 {

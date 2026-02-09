@@ -7,12 +7,14 @@
 extern "C" {
 #endif
 
-retro_video_refresh_t video_cb = NULL;
-retro_environment_t environ_cb = NULL;
-retro_audio_sample_t audio_cb = NULL;
-retro_audio_sample_batch_t audio_batch_cb = NULL;
-retro_input_poll_t input_poll_cb = NULL;
-retro_input_state_t input_state_cb = NULL;
+extern retro_video_refresh_t video_cb;
+extern retro_environment_t environ_cb;
+extern retro_audio_sample_t audio_cb;
+extern retro_audio_sample_batch_t audio_batch_cb;
+extern retro_input_poll_t input_poll_cb;
+extern retro_input_state_t input_state_cb;
+extern retro_input_state_t dbg_input_state_cb;
+extern struct retro_hw_render_callback hw_render;
 
 #ifdef __cplusplus
 }

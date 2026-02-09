@@ -1,33 +1,14 @@
 #ifndef LIBRETRO_OPTIONS_H__
 #define LIBRETRO_OPTIONS_H__
 
-#ifdef HAVE_OPENGLES3
-#define MEDNAFEN_CORE_RENDERER "-GLES3"
-#else
-#define MEDNAFEN_CORE_RENDERER ""
-#endif
+// Core Metadata
+#define CORE_NAME           "Sega Model 3 (Supermodel)"
+#define CORE_VERSION        "v0.3a"
+#define CORE_EXTENSIONS     "zip|7z|dat"
 
-#define MEDNAFEN_CORE_SETVERSION "v0.3a"
-
-#define MEDNAFEN_CORE_NAME_MODULE "mod3"
-#ifdef HAVE_HW
-#define MEDNAFEN_CORE_NAME "Beetle PSX HW"
-#define MEDNAFEN_CORE_VERSION MEDNAFEN_CORE_SETVERSION MEDNAFEN_CORE_RENDERER
-#else
-#define MEDNAFEN_CORE_NAME "Sega Model 3 (Supermodel)"
-#define MEDNAFEN_CORE_VERSION MEDNAFEN_CORE_SETVERSION
-#endif
-#define MEDNAFEN_CORE_EXTENSIONS "zip|7z|dat"
-#define MEDNAFEN_CORE_GEOMETRY_BASE_W 320
-#define MEDNAFEN_CORE_GEOMETRY_BASE_H 240
-#define MEDNAFEN_CORE_GEOMETRY_MAX_W 700
-#define MEDNAFEN_CORE_GEOMETRY_MAX_H 576
-#define MEDNAFEN_CORE_GEOMETRY_ASPECT_RATIO (4.0 / 3.0)
-
-#ifdef HAVE_HW
-#define BEETLE_OPT(_o) ("beetle_psx_hw_" # _o)
-#else
-#define BEETLE_OPT(_o) ("beetle_psx_" # _o)
-#endif
+// Model 3 Native Resolution
+#define CORE_GEOMETRY_W     496
+#define CORE_GEOMETRY_H     384
+#define CORE_ASPECT_RATIO   (4.0 / 3.0)
 
 #endif

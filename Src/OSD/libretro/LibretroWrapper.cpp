@@ -206,7 +206,6 @@ void LibretroWrapper::SetFullScreenRefreshRate()
     }
 }
 
-
 void LibretroWrapper::DestroyGLScreen()
 {
   if (s_window != nullptr)
@@ -235,7 +234,6 @@ void LibretroWrapper::UpdateScreenSize(unsigned newWidth, unsigned newHeight)
     glScissor(0, 0, newWidth, newHeight);
     glDisable(GL_SCISSOR_TEST); 
 }
-
 
 void LibretroWrapper::SaveFrameBuffer(const std::string& file)
 {
@@ -272,114 +270,6 @@ void LibretroWrapper::Screenshot()
  Render State Analysis
 ******************************************************************************/
 
-#ifdef DEBUG
-
-#include "Model3/Model3GraphicsState.h"
-#include "OSD/SDL/PolyAnalysis.h"
-#include <fstream>
-#include "CLibretroInputSystem.h"
-
-static std::string s_gfxStatePath;
-static const std::string k_gfxAnalysisPath = "GraphicsAnalysis/";
-
-static std::string GetFileBaseName(const std::string &file)
-{
-  std::string base = file;
-  size_t pos = file.find_last_of('/');
-  if (pos != std::string::npos)
-    base = file.substr(pos + 1);
-  pos = file.find_last_of('\\');
-  if (pos != std::string::npos)
-    base = file.substr(pos + 1);
-  return base;
-}
-
-void LibretroWrapper::TestPolygonHeaderBits(IEmulator *Emu)
-{
-  const static std::vector<uint32_t> unknownPolyBits
-  {
-    0xffffffff,
-    0x000000ab, // actual color
-    0x000000fc,
-    0x000000c0,
-    0x000000a0,
-    0xffffff60,
-    0xff0300ff  // contour, luminous, etc.
-  };
-
-  const std::vector<uint32_t> unknownCullingNodeBits
-  {
-    0xffffffff,
-    0x00000000,
-    0x00000000,
-    0x00000000,
-    0x00000000,
-    0x00000000,
-    0x00000000,
-    0x00000000,
-    0x00000000,
-    0x00000000
-  };
-
-  GLint readBuffer;
-  glGetIntegerv(GL_READ_BUFFER, &readBuffer);
-  glReadBuffer(GL_FRONT);
-
-  // Render separate image for each unknown bit
-  s_runtime_config.Set("Debug/ForceFlushModels", true);
-  for (int idx = 0; idx < 7; idx++)
-  {
-    for (int bit = 0; bit < 32; bit++)
-    {
-      uint32_t mask = 1 << bit;
-      s_runtime_config.Set("Debug/HighlightPolyHeaderIdx", idx);
-      s_runtime_config.Set("Debug/HighlightPolyHeaderMask", mask);
-      if ((unknownPolyBits[idx] & mask))
-      {
-        Emu->RenderFrame();
-        std::string file = Util::Format() << k_gfxAnalysisPath << GetFileBaseName(s_gfxStatePath) << "." << "poly" << "." << idx << "_" << Util::Hex(mask) << ".bmp";
-        this->SaveFrameBuffer(file);
-      }
-    }
-  }
-
-  for (int idx = 0; idx < 10; idx++)
-  {
-    for (int bit = 0; bit < 32; bit++)
-    {
-      uint32_t mask = 1 << bit;
-      s_runtime_config.Set("Debug/HighlightCullingNodeIdx", idx);
-      s_runtime_config.Set("Debug/HighlightCullingNodeMask", mask);
-      if ((unknownCullingNodeBits[idx] & mask))
-      {
-        Emu->RenderFrame();
-        std::string file = Util::Format() << k_gfxAnalysisPath << GetFileBaseName(s_gfxStatePath) << "." << "culling" << "." << idx << "_" << Util::Hex(mask) << ".bmp";
-        this->SaveFrameBuffer(file);
-      }
-    }
-  }
-
-  glReadBuffer(readBuffer);
-
-  // Generate the HTML GUI
-  std::string file = Util::Format() << k_gfxAnalysisPath << "_" << GetFileBaseName(s_gfxStatePath) << ".html";
-  std::ofstream fs(file);
-  if (!fs.good())
-    ErrorLog("Unable to open '%s' for writing.", file.c_str());
-  else
-  {
-    std::string contents = s_polyAnalysisHTMLPrologue;
-    contents += "    var g_file_base_name = '" + GetFileBaseName(s_gfxStatePath) + "';\n";
-    contents += "    var g_unknown_poly_bits = [" + std::string(Util::Format(",").Join(unknownPolyBits)) + "];\n";
-    contents += "    var g_unknown_culling_bits = [" + std::string(Util::Format(",").Join(unknownCullingNodeBits)) + "];\n";
-    contents += s_polyAnalysisHTMLEpilogue;
-    fs << contents;
-    printf("Produced: %s\n", file.c_str());
-  }
-}
-
-#endif
-
 
 /******************************************************************************
  Save States and NVRAM
@@ -399,15 +289,17 @@ static const int STATE_FILE_VERSION = 5;  // save state file version
 static const int NVRAM_FILE_VERSION = 0;  // NVRAM file version
 static unsigned s_saveSlot = 0;           // save state slot #
 
+LibretroWrapper::LibretroWrapper() : 
+    xRes(800), yRes(600), xOffset(0), yOffset(0), 
+    totalXRes(800), totalYRes(600), aaValue(0)
+{
+      g_ctx = this;
 
-// void Supermodel_BindNvram(CModel3* model)
-// {
-//     // Backup RAM
-//     model->backupRAM = g_saveRam + EEPROM_SIZE;
+}
 
-//     // EEPROM
-//     model->EEPROM.SetRawBuffer(g_saveRam, EEPROM_SIZE);
-// }
+LibretroWrapper::~LibretroWrapper() 
+{
+}
 
 static void SaveState(IEmulator *Model3)
 {
@@ -524,6 +416,15 @@ static void LoadNVRAM(IEmulator *Model3)
   InfoLog("Loaded NVRAM from '%s'.", file_path.c_str());
 }
 
+// void Supermodel_BindNvram(CModel3* model)
+// {
+//     // Backup RAM
+//     model->backupRAM = g_saveRam + EEPROM_SIZE;
+
+//     // EEPROM
+//     model->EEPROM.SetRawBuffer(g_saveRam, EEPROM_SIZE);
+// }
+
 
 /*
 static void PrintGLError(GLenum error)
@@ -565,7 +466,6 @@ void EndFrameVideo()
   // Swap the buffers
   SDL_GL_SwapWindow(g_ctx->getWindow());
 }
-
 
 /******************************************************************************
  Frame Timing
@@ -614,10 +514,44 @@ static void SuperSleepUntil(const uint64_t target)
   } while (remain > 0);
 }
 
-
 /******************************************************************************
  Main Program Loop
 ******************************************************************************/
+
+
+bool LibretroWrapper::InitRenderers()
+{
+    // Delete old GL objects if they exist
+    delete Render2D; Render2D = nullptr;
+    delete Render3D; Render3D = nullptr;
+    delete superAA;  superAA  = nullptr;
+
+    superAA = new SuperAA(aaValue, CRTcolors);
+    superAA->Init(totalXRes, totalYRes);
+
+    Render2D = new CRender2D(s_runtime_config);
+    Render3D =
+        s_runtime_config["New3DEngine"].ValueAs<bool>()
+        ? (IRender3D*)new New3D::CNew3D(s_runtime_config, Model3->GetGame().name)
+        : (IRender3D*)new Legacy3D::CLegacy3D(s_runtime_config);
+
+    if (Result::OKAY != Render2D->Init(
+            xOffset*aaValue, yOffset*aaValue,
+            xRes*aaValue, yRes*aaValue,
+            totalXRes*aaValue, totalYRes*aaValue,
+            superAA->GetTargetID(), upscaleMode))
+        return false;
+
+    if (Result::OKAY != Render3D->Init(
+            xOffset*aaValue, yOffset*aaValue,
+            xRes*aaValue, yRes*aaValue,
+            totalXRes*aaValue, totalYRes*aaValue,
+            superAA->GetTargetID()))
+        return false;
+
+    Model3->AttachRenderers(Render2D, Render3D, superAA);
+    return true;
+}
 
 
 int LibretroWrapper::SuperModelInit(const Game &game) {
@@ -697,21 +631,6 @@ int LibretroWrapper::SuperModelInit(const Game &game) {
   perfCountPerFrame = s_perfCounterFrequency * 1000 / GetDesiredRefreshRateMilliHz();
   nextTime = 0;
 
-  // Initialize the renderers
-  superAA = new SuperAA(aaValue, CRTcolors);
-  superAA->Init(totalXRes, totalYRes);  // pass actual frame sizes here
-  Render2D = new CRender2D(s_runtime_config);
-  Render3D = s_runtime_config["New3DEngine"].ValueAs<bool>() ? ((IRender3D *) new New3D::CNew3D(s_runtime_config, Model3->GetGame().name)) : ((IRender3D *) new Legacy3D::CLegacy3D(s_runtime_config));
-
-  upscaleMode = (UpscaleMode)s_runtime_config["UpscaleMode"].ValueAs<int>();
-
-  if (Result::OKAY != Render2D->Init(xOffset*aaValue, yOffset*aaValue, xRes*aaValue, yRes*aaValue, totalXRes*aaValue, totalYRes*aaValue, superAA->GetTargetID(), upscaleMode))
-    goto QuitError;
-  if (Result::OKAY != Render3D->Init(xOffset*aaValue, yOffset*aaValue, xRes*aaValue, yRes*aaValue, totalXRes*aaValue, totalYRes*aaValue, superAA->GetTargetID()))
-    goto QuitError;
-
-  Model3->AttachRenderers(Render2D,Render3D, superAA);
-
   // Reset emulator
   Model3->Reset();
 
@@ -735,13 +654,7 @@ int LibretroWrapper::SuperModelInit(const Game &game) {
   quit = false;
   paused = false;
   dumpTimings = false;
-#ifdef DEBUG
-  if (dynamic_cast<CModel3GraphicsState *>(Model3))
-  {
-    TestPolygonHeaderBits(Model3);
-    quit = true;
-  }
-#endif
+
   return 0;
 
 QuitError:
@@ -752,16 +665,8 @@ QuitError:
   return 1;
 }
 
-
-#ifdef SUPERMODEL_DEBUGGER
-int LibretroWrapper::Supermodel(const Game &game, ROMSet *rom_set, IEmulator *Model3, CInputs *Inputs, COutputs *Outputs, std::shared_ptr<Debugger::CDebugger> Debugger)
-{
-  std::shared_ptr<CLogger> oldLogger;
-#else
 int LibretroWrapper::Supermodel(const Game &game)
 {
-#endif // SUPERMODEL_DEBUGGER
-  
     if (paused)
       Model3->RenderFrame();
     else
@@ -821,44 +726,6 @@ int LibretroWrapper::Supermodel(const Game &game)
       if (Outputs != NULL)
         Outputs->SetValue(OutputPause, paused);
     }
-    // else if (Inputs->uiFullScreen->Pressed())
-    // {
-    //   // Toggle emulator fullscreen
-    //   s_runtime_config.Get("FullScreen").SetValue(!s_runtime_config["FullScreen"].ValueAs<bool>());
-
-    //   // Delete renderers and recreate them afterwards since GL context will most likely be lost when switching from/to fullscreen
-    //   Render2D = nullptr;
-
-    //   // Resize screen
-    //   totalXRes = xRes = s_runtime_config["XResolution"].ValueAs<unsigned>();
-    //   totalYRes = yRes = s_runtime_config["YResolution"].ValueAs<unsigned>();
-    //   bool stretchc = s_runtime_config["Stretch"].ValueAs<bool>();
-    //   bool fullscreenc = s_runtime_config["FullScreen"].ValueAs<bool>();
-    //   if (Result::OKAY != ResizeGLScreen(&xOffset,&yOffset,&xRes,&yRes,&totalXRes,&totalYRes,!stretchc,fullscreenc)) {
-       
-    //     return 1;
-    //   }
-        
-    //   // Recreate renderers and attach to the emulator
-    //   superAA->Init(totalXRes, totalYRes);
-    //   Render2D = new CRender2D(s_runtime_config);
-
-    //   if (Result::OKAY != Render2D->Init(xOffset * aaValue, yOffset * aaValue, xRes * aaValue, yRes * aaValue, totalXRes * aaValue, totalYRes * aaValue, superAA->GetTargetID(), upscaleMode)){
-        
-
-    //     return 1;
-    //   }
-        
-    //   if (Result::OKAY != Render3D->Init(xOffset * aaValue, yOffset * aaValue, xRes * aaValue, yRes * aaValue, totalXRes * aaValue, totalYRes * aaValue, superAA->GetTargetID())){
-       
-    //     return 1;
-    //   }
-        
-
-    //   Model3->AttachRenderers(Render2D, Render3D, superAA);
-
-    //   Inputs->GetInputSystem()->SetMouseVisibility(!s_runtime_config["FullScreen"].ValueAs<bool>());
-    // }
     else if (Inputs->uiSaveState->Pressed())
     {
       if (!paused)
@@ -1040,8 +907,6 @@ int LibretroWrapper::Supermodel(const Game &game)
     }
   //}
 
- 
-
 #ifdef SUPERMODEL_DEBUGGER
   // If debugger was supplied, detach it from system and restore old logger
   if (Debugger != NULL)
@@ -1073,7 +938,6 @@ QuitError:
 
   return 1;
 }
-
 
 void LibretroWrapper::ShutDownSupermodel()
 {
@@ -1168,30 +1032,6 @@ Result LibretroWrapper::ConfigureInputs(CInputs *Inputs, Util::Config::Node *fil
   return Result::OKAY;
 }
 
-// Print game list
-static void PrintGameList(const std::string &xml_file, const std::map<std::string, Game> &games)
-{
-  if (games.empty())
-  {
-    puts("No games defined.");
-    return;
-  }
-  printf("Games defined in %s:\n", xml_file.c_str());
-  puts("");
-  puts("    ROM Set         Title");
-  puts("    -------         -----");
-  for (auto &v: games)
-  {
-    const Game &game = v.second;
-    printf("    %s", game.name.c_str());
-    for (size_t i = game.name.length(); i < 9; i++)  // pad for alignment (no game ID should be more than 9 letters)
-      printf(" ");
-    if (!game.version.empty())
-      printf("       %s (%s)\n", game.title.c_str(), game.version.c_str());
-    else
-      printf("       %s\n", game.title.c_str());
-  }
-}
 
 static void LogConfig(const Util::Config::Node &config)
 {
@@ -1519,105 +1359,6 @@ Util::Config::Node DefaultConfig()
   return config;
 }
 
-static void Title(void)
-{
-  puts("Supermodel: A Sega Model 3 Arcade Emulator (Version " SUPERMODEL_VERSION ")");
-  puts("Copyright 2003-2025 by The Supermodel Team");
-}
-
-static void Help(void)
-{
-  Util::Config::Node defaultConfig = DefaultConfig();
-  puts("Usage: Supermodel <romset> [options]");
-  puts("ROM set must be a valid ZIP file containing a single game.");
-  puts("");
-  puts("General Options:");
-  puts("  -?, -h, -help, --help   Print this help text");
-  puts("  -print-games            List supported games and quit");
-  printf("  -game-xml-file=<file>   ROM set definition file [Default: %s]\n", s_gameXMLFilePath.c_str());
-  printf("  -log-output=<outputs>   Log output destination(s) [Default: %s]\n", s_logFilePath.c_str());
-  puts("  -log-level=<level>      Logging threshold [Default: info]");
-  puts("");
-  puts("Core Options:");
-  puts("  -ppc-frequency=<mhz>    PowerPC frequency (default varies by stepping)");
-  puts("  -no-threads             Disable multi-threading entirely");
-  puts("  -gpu-multi-threaded     Run graphics rendering in separate thread [Default]");
-  puts("  -no-gpu-thread          Run graphics rendering in main thread");
-  puts("  -load-state=<file>      Load save state after starting");
-  puts("");
-  puts("Video Options:");
-  puts("  -res=<x>,<y>            Resolution [Default: 496,384]");
-  puts("  -ss=<n>                 Supersampling (range 1-8)");
-  puts("  -window-pos=<x>,<y>     Window position [Default: centered]");
-  puts("  -window                 Windowed mode [Default]");
-  puts("  -borderless             Windowed mode with no border");
-  puts("  -fullscreen             Full screen mode");
-  puts("  -wide-screen            Expand 3D field of view to screen width");
-  puts("  -wide-bg                When wide-screen mode is enabled, also expand the 2D");
-  puts("                          background layer to screen width");
-  puts("  -stretch                Fit viewport to resolution, ignoring aspect ratio");
-  puts("  -upscalemode=<n>        2D layer upscaling filter mode (range 0-3)");
-  puts("  -crtcolors=<n>          CRT color emulation (range 0-5)");
-  puts("  -no-throttle            Disable frame rate lock");
-  puts("  -vsync                  Lock to vertical refresh rate [Default]");
-  puts("  -no-vsync               Do not lock to vertical refresh rate");
-  puts("  -true-hz                Use true Model 3 refresh rate of 57.524 Hz");
-  puts("  -show-fps               Display frame rate in window title bar");
-  puts("  -crosshairs=<n>         Crosshairs configuration for gun games:");
-  puts("                          0=none [Default], 1=P1 only, 2=P2 only, 3=P1 & P2");
-  puts("  -crosshair-style=<s>    Crosshair style: vector or bmp. [Default: vector]");
-  puts("  -new3d                  New 3D engine by Ian Curtis [Default]");
-  puts("  -quad-rendering         Enable proper quad rendering");
-  puts("  -legacy3d               Legacy 3D engine (faster but less accurate)");
-  puts("  -multi-texture          Use 8 texture maps for decoding (legacy engine)");
-  puts("  -no-multi-texture       Decode to single texture (legacy engine) [Default]");
-  puts("  -no-white-flash         Disables white flash when games disable 3D rendering");
-  puts("  -vert-shader=<file>     Load Real3D vertex shader for 3D rendering");
-  puts("  -frag-shader=<file>     Load Real3D fragment shader for 3D rendering");
-  puts("  -print-gl-info          Print OpenGL driver information and quit");
-  puts("");
-  puts("Audio Options:");
-  puts("  -sound-volume=<vol>     Volume of SCSP-generated sound in %, applies only");
-  puts("                          when Digital Sound Board is present [Default: 100]");
-  puts("  -music-volume=<vol>     Digital Sound Board volume in % [Default: 100]");
-  puts("  -balance=<bal>          Relative front/rear balance in % [Default: 0]");
-  puts("  -channels=<c>           Number of sound channels to use on host [Default: 4]");
-  puts("  -flip-stereo            Swap left and right audio channels");
-  puts("  -no-sound               Disable sound board emulation (sound effects)");
-  puts("  -no-dsb                 Disable Digital Sound Board (MPEG music)");
-  puts("  -new-scsp               New SCSP engine based on MAME [Default]");
-  puts("  -legacy-scsp            Legacy SCSP engine by ElSemi");
-  puts("");
-#ifdef NET_BOARD
-  puts("Net Options:");
-  puts("  -no-net                 Disable net board [Default]");
-  puts("  -net                    Enable net board");
-  puts("  -simulate-netboard      Simulate the net board [Default]");
-  puts("  -emulate-netboard       Emulate the net board (requires -no-threads)");
-  puts("");
-#endif
-  puts("Input Options:");
-  puts("  -force-feedback         Enable force feedback (DirectInput, XInput)");
-  puts("  -config-inputs          Configure keyboards, mice, and game controllers");
-#ifdef SUPERMODEL_WIN32
-  printf("  -input-system=<s>       Input system [Default: %s]\n", defaultConfig["InputSystem"].ValueAs<std::string>().c_str());
-  printf("  -outputs=<s>            Outputs [Default: %s]\n", defaultConfig["Outputs"].ValueAs<std::string>().c_str());
-#endif
-  puts("  -print-inputs           Prints current input configuration");
-  puts("");
-  puts("Debug Options:");
-  puts("  -dump-textures          Write textures to bitmap image files on exit");
-#ifdef SUPERMODEL_DEBUGGER
-  puts("  -disable-debugger       Completely disable debugger functionality");
-  puts("  -enter-debugger         Enter debugger at start of emulation");
-#endif // SUPERMODEL_DEBUGGER
-#ifdef DEBUG
-  puts("  -gfx-state=<file>       Produce graphics analysis for save state (works only");
-  puts("                          with the legacy 3D engine and requires a");
-  puts("                          GraphicsAnalysis directory to exist)");
-#endif
-  puts("");
-}
 
 struct ParsedCommandLine
 {
@@ -1914,21 +1655,8 @@ static ParsedCommandLine ParseCommandLine(int argc, char **argv)
   return cmd_line;
 }
 
-LibretroWrapper::LibretroWrapper() : 
-    xRes(800), yRes(600), xOffset(0), yOffset(0), 
-    totalXRes(800), totalYRes(600), aaValue(0)
-{
-      g_ctx = this;
-
-}
-
-LibretroWrapper::~LibretroWrapper() 
-{
-}
-
 int LibretroWrapper::Emulate(const char* romPath) 
 {
-    Title();
     WriteDefaultConfigurationFileIfNotPresent();
 
     bool loadGUI = false;
@@ -1967,13 +1695,7 @@ int LibretroWrapper::Emulate(const char* romPath)
     }
     SetLogger(logger);
     InfoLog("Supermodel Version " SUPERMODEL_VERSION);
-    
-    // Command line status
-    if (cmd_line.print_help)
-    {
-        Help();
-        return 0;
-    }
+  
    
     bool rom_specified = !cmd_line.rom_files.empty();
     if (!rom_specified && !cmd_line.print_games && !cmd_line.config_inputs && !cmd_line.print_inputs)
@@ -1995,11 +1717,6 @@ int LibretroWrapper::Emulate(const char* romPath)
         {
             std::string xml_file = config3["GameXMLFile"].ValueAs<std::string>();
             GameLoader loader(xml_file);
-            if (cmd_line.print_games)
-            {
-                PrintGameList(xml_file, loader.GetGames());
-                return 0;
-            }
             if (loader.Load(&game, &rom_set, *cmd_line.rom_files.begin()))
                 return 1;
             Util::Config::MergeINISections(&config4, config3, fileConfig[game.name]);   
@@ -2079,10 +1796,6 @@ static bool gl_initialized = false;
 
 void LibretroWrapper::InitGL()
 {
-    // DO NOT bind FBO here
-    // DO NOT call SuperModelInit here
-
-    // Just init GL state & extensions
     static bool glew_done = false;
     if (!glew_done)
     {
@@ -2099,6 +1812,7 @@ void LibretroWrapper::InitGL()
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LESS);
 
-    // Now it is SAFE
-    SuperModelInit(game);   // <-- MUST BE HERE
+    // ONLY renderer recreation
+    InitRenderers();   // delete + recreate Render2D/Render3D/superAA
 }
+
