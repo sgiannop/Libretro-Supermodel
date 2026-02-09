@@ -1,40 +1,3 @@
-/*
- *
- *    #0  0x00007ff6586392a0 in CSoundBoard::GetDSB (this=0x1128) at Src/Model3/SoundBoard.cpp:552
- *    #1  0x00007ff6587072cf in Debugger::CSupermodelDebugger::CreateDSBCPUDebug (model3=0x0) at Src/Debugger/SupermodelDebugger.cpp:269
- *    #2  0x00007ff6587076e9 in Debugger::CSupermodelDebugger::AddCPUs (this=0x185da75df40) at Src/Debugger/SupermodelDebugger.cpp:361
- *    #3  0x00007ff6586f91a6 in Debugger::CDebugger::Attach (this=0x185da75df40) at Src/Debugger/Debugger.cpp:263
- *    #4  0x00007ff658705312 in Debugger::CConsoleDebugger::Attach (this=0x185da75df40) at Src/Debugger/ConsoleDebugger.cpp:2707
- *    #5  0x00007ff65862c6fc in Supermodel (game=..., rom_set=0x6cc8dff0e0, Model3=0x185da7598d0, Inputs=0x185da752590, Outputs=0x0, Debugger=std::shared_ptr<Debugger::CDebugger> (use count 3, weak count 0) = {...})
- *        at Src/OSD/SDL/Main.cpp:978
- *    #6  0x00007ff658634ba3 in SDL_main (argc=3, argv=0x185da4e68a0) at Src/OSD/SDL/Main.cpp:2056
- *    #7  0x00007ff658720141 in main_getcmdline ()
- *    #8  0x00007ff6585b13b1 in __tmainCRTStartup () at C:/M/mingw-w64-crt-git/src/mingw-w64/mingw-w64-crt/crt/crtexe.c:321
- *    #9  0x00007ff6585b14e6 in mainCRTStartup () at C:/M/mingw-w64-crt-git/src/mingw-w64/mingw-w64-crt/crt/crtexe.c:202
- * - Need to address all the stale TO-DOs below and clear them out :)
- *
- * To Do Before Next Release
- * -------------------------
- * - Thoroughly test config system (do overrides work as expected? XInput
- *   force settings?)
- * - Remove all occurrences of "using namespace std" from Nik's code.
- * - Standardize variable naming (recently introduced vars_like_this should be
- *   converted back to varsLikeThis).
- * - Update save state file revision (strings > 1024 chars are now supported).
- * - Fix BlockFile.cpp to use fstream!
- * - Check to make sure save states use explicitly-sized types for 32/64-bit
- *   compatibility (i.e., size_t, int, etc. not allowed).
- * - Make sure quitting while paused works.
- * - Add UI keys for balance setting?
- * - 5.1 audio support?
- *
- * Compile-Time Options
- * --------------------
- * - SUPERMODEL_WIN32: Define this if compiling on Windows.
- * - SUPERMODEL_OSX: Define this if compiling on Mac OS X.
- * - SUPERMODEL_DEBUGGER: Enable the debugger.
- * - DEBUG: Debug mode (use with caution, produces large logs of game behavior)
- */
 
 #include <iostream>
 #include <new>
@@ -62,7 +25,6 @@
 #include "Util/ConfigBuilders.h"
 #include "OSD/FileSystemPath.h"
 #include "GameLoader.h"
-#include <OSD/SDL/SDLIncludes.h>
 #include "Debugger/SupermodelDebugger.h"
 #include "Graphics/Legacy3D/Legacy3D.h"
 #include "Graphics/New3D/New3D.h"
@@ -73,11 +35,11 @@
 #include "Graphics/SuperAA.h"
 #include "Sound/MPEG/MpegAudio.h"
 #include "Util/BMPFile.h"
-#include "../SDL/Crosshair.h"
 #include "OSD/DefaultConfigFile.h"
-#include "../SDL/Gui.h"
+#include "libretroCrosshair.h"
 #include "LibretroWrapper.h"
 #include "CLibretroInputSystem.h"
+#include "libretroGui.h"
 
 /******************************************************************************
  Global Run-time Config
@@ -426,23 +388,6 @@ static void LoadNVRAM(IEmulator *Model3)
 // }
 
 
-/*
-static void PrintGLError(GLenum error)
-{
-  switch (error)
-  {
-  case GL_INVALID_ENUM:       printf("invalid enum\n"); break;
-  case GL_INVALID_VALUE:      printf("invalid value\n"); break;
-  case GL_INVALID_OPERATION:  printf("invalid operation\n"); break;
-  case GL_STACK_OVERFLOW:     printf("stack overflow\n"); break;
-  case GL_STACK_UNDERFLOW:    printf("stack underflow\n"); break;
-  case GL_OUT_OF_MEMORY:      printf("out of memory\n"); break;
-  case GL_TABLE_TOO_LARGE:    printf("table too large\n"); break;
-  case GL_NO_ERROR:           break;
-  default:                    printf("unknown error\n"); break;
-  }
-}
-*/
 
 /******************************************************************************
  Video Callbacks
@@ -481,43 +426,6 @@ static uint64_t GetDesiredRefreshRateMilliHz()
   uint64_t refreshRateMilliHz = uint64_t(1000.0 * refreshRateHz);
   return refreshRateMilliHz;
 }
-
-static void SuperSleepUntil(const uint64_t target)
-{
-  uint64_t time = SDL_GetPerformanceCounter();
-
-  // If we're ahead of the target, we're done
-  if (time >= target)
-  {
-    return;
-  }
-
-  // Because OS sleep is not accurate,
-  // we actually sleep until a maximum of 2 milliseconds are left.
-  while (int64_t(target - time) * 1000 > 2 * int64_t(s_perfCounterFrequency))
-  {
-    SDL_Delay(1);
-    time = SDL_GetPerformanceCounter();
-  }
-
-  // Spin until requested time
-  int64_t remain;
-  do
-  {
-    // according to all available processor documentation for x86 and arm,
-    // spinning should pause the processor for a short while for better
-    // power efficiency and (surprisingly) overall faster system performance
-    #ifdef SDL_CPUPauseInstruction
-    SDL_CPUPauseInstruction();
-    #endif
-    remain = target - SDL_GetPerformanceCounter();
-  } while (remain > 0);
-}
-
-/******************************************************************************
- Main Program Loop
-******************************************************************************/
-
 
 bool LibretroWrapper::InitRenderers()
 {
@@ -582,29 +490,12 @@ int LibretroWrapper::SuperModelInit(const Game &game) {
   totalXRes = xRes = s_runtime_config["XResolution"].ValueAs<unsigned>();
   totalYRes = yRes = s_runtime_config["YResolution"].ValueAs<unsigned>();
   snprintf(baseTitleStr, sizeof(baseTitleStr), "Supermodel - %s", game.title.c_str());
-  //SDL_SetWindowTitle(s_window, baseTitleStr);
-  //SDL_SetWindowSize(s_window, totalXRes, totalYRes);
 
   int xpos = s_runtime_config["WindowXPosition"].ValueAsDefault<int>(SDL_WINDOWPOS_CENTERED);
   int ypos = s_runtime_config["WindowYPosition"].ValueAsDefault<int>(SDL_WINDOWPOS_CENTERED);
-  //SDL_SetWindowPosition(s_window, xpos, ypos);
-
-  if (s_runtime_config["BorderlessWindow"].ValueAs<bool>())
-  {
-    //SDL_SetWindowBordered(s_window, SDL_FALSE);
-  }
-
-  // SetFullScreenRefreshRate();
-
-  bool stretch = false; // s_runtime_config["Stretch"].ValueAs<bool>();
-  bool fullscreen = false;// s_runtime_config["FullScreen"].ValueAs<bool>();
-  // if (Result::OKAY != ResizeGLScreen(&xOffset, &yOffset ,&xRes, &yRes, &totalXRes, &totalYRes, !stretch, fullscreen))
-  //   return 1;
-
-  // Info log GL information
-  // PrintGLInfo(false, true, false);
-
-  // Initialize audio system
+  
+  bool stretch = false;          
+  bool fullscreen = false;
   SetAudioType(game.audio);
   if (Result::OKAY != OpenAudio(s_runtime_config))
     return 1;
@@ -626,11 +517,6 @@ int LibretroWrapper::SuperModelInit(const Game &game) {
   if (Outputs != nullptr)
     Model3->AttachOutputs(Outputs);
 
-  // Frame timing
-  s_perfCounterFrequency = SDL_GetPerformanceFrequency();
-  perfCountPerFrame = s_perfCounterFrequency * 1000 / GetDesiredRefreshRateMilliHz();
-  nextTime = 0;
-
   // Reset emulator
   Model3->Reset();
 
@@ -638,19 +524,7 @@ int LibretroWrapper::SuperModelInit(const Game &game) {
   if (!initialState.empty())
     LoadState(Model3, initialState);
 
-#ifdef SUPERMODEL_DEBUGGER
-  // If debugger was supplied, set it as logger and attach it to system
-  oldLogger = GetLogger();
-  if (Debugger != NULL)
-  {
-    SetLogger(Debugger);
-    Debugger->Attach();
-  }
-#endif // SUPERMODEL_DEBUGGER
-
-  // Emulate!
   fpsFramesElapsed = 0;
-  prevFPSTicks = SDL_GetPerformanceCounter();
   quit = false;
   paused = false;
   dumpTimings = false;
@@ -876,27 +750,9 @@ int LibretroWrapper::Supermodel(const Game &game)
     }
 #endif // SUPERMODEL_DEBUGGER
 
-    // Refresh rate (frame limiting)
-    if (paused || s_runtime_config["Throttle"].ValueAs<bool>())
-    {
-        //SuperSleepUntil(nextTime);
-        nextTime = SDL_GetPerformanceCounter() + perfCountPerFrame;
-    }
-
-    // Measure frame rate
-    uint64_t currentFPSTicks = SDL_GetPerformanceCounter();
-    if (s_runtime_config["ShowFrameRate"].ValueAs<bool>())
+   if (s_runtime_config["ShowFrameRate"].ValueAs<bool>())
     {
       fpsFramesElapsed += 1;
-      uint64_t measurementTicks = currentFPSTicks - prevFPSTicks;
-      if (measurementTicks >= s_perfCounterFrequency) // update FPS every 1 second (s_perfCounterFrequency is how many perf ticks in one second)
-      {
-        double fps = double(fpsFramesElapsed) / (double(measurementTicks) / double(s_perfCounterFrequency));
-        snprintf(titleStr, sizeof(titleStr), "%s - %1.3f FPS%s", baseTitleStr, fps, paused ? " (Paused)" : "");
-        SDL_SetWindowTitle(s_window, titleStr);
-        prevFPSTicks = currentFPSTicks;   // reset tick count
-        fpsFramesElapsed = 0;             // reset frame count
-      }
     }
 
     if (dumpTimings && !paused)
@@ -905,16 +761,7 @@ int LibretroWrapper::Supermodel(const Game &game)
       if (M)
         M->DumpTimings();
     }
-  //}
 
-#ifdef SUPERMODEL_DEBUGGER
-  // If debugger was supplied, detach it from system and restore old logger
-  if (Debugger != NULL)
-  {
-    Debugger->Detach();
-    SetLogger(oldLogger);
-  }
-#endif // SUPERMODEL_DEBUGGER
 //  // Make sure all threads are paused before shutting down
 //   Model3->PauseThreads();
 //   // Save NVRAM
@@ -1624,25 +1471,6 @@ static ParsedCommandLine ParseCommandLine(int argc, char **argv)
         cmd_line.config_inputs = true;
       else if (arg == "-print-inputs")
         cmd_line.print_inputs = true;
-#ifdef SUPERMODEL_DEBUGGER
-      else if (arg == "-disable-debugger")
-        cmd_line.disable_debugger = true;
-      else if (arg == "-enter-debugger")
-        cmd_line.enter_debugger = true;
-#endif
-#ifdef DEBUG
-      else if (arg == "-gfx-state" || arg.find("-gfx-state=") == 0)
-      {
-        std::vector<std::string> parts = Util::Format(arg).Split('=');
-        if (parts.size() != 2)
-        {
-          ErrorLog("'-gfx-state' requires a file name.");
-          cmd_line.error = true;
-        }
-        else
-          cmd_line.gfx_state = parts[1];
-      }
-#endif
       else
       {
         ErrorLog("Ignoring unrecognized option: %s", argv[i]);
@@ -1725,12 +1553,6 @@ int LibretroWrapper::Emulate(const char* romPath)
             config4 = config3;
             
         Util::Config::MergeINISections(&s_runtime_config, config4, cmd_line.config);  
-    }
-
-    if (SDL_Init(0) != 0)
-    {
-        ErrorLog("Unable to initialize SDL: %s\n", SDL_GetError());
-        return 1;
     }
 
     int exitCode = 0;

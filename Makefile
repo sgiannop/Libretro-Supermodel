@@ -632,7 +632,16 @@ ${LIBRARY_NAME}_FILES = $(SOURCES_C)
 include $(THEOS_MAKE_PATH)/library.mk
 else
 all: $(TARGET)
-LIBS += -lm -lGLEW -lGL -lGLU -lz -lSDL2
+
+# Supermodel 3 needs specific libraries. 
+# We should use pkg-config where possible for Linux/Ubuntu.
+LIBS += $(shell pkg-config --libs glew gl glu zlib sdl2)
+# If pkg-config fails on some systems, keep the fallback:
+ifeq ($(LIBS),)
+    LIBS += -lGLEW -lGL -lGLU -lz -lSDL2
+endif
+# Ensure we are using C++17 (required for modern Supermodel source)
+CXXFLAGS += -std=c++17
 
 $(TARGET): $(OBJECTS)
 ifeq ($(STATIC_LINKING),1)

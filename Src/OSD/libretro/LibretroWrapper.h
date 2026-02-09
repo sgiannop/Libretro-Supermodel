@@ -9,6 +9,9 @@
 #define EEPROM_SIZE   0x200
 #define BACKUP_SIZE   0x20000
 #define SAVE_RAM_SIZE (EEPROM_SIZE + BACKUP_SIZE)
+
+Util::Config::Node DefaultConfig();
+
 class LibretroWrapper
 {
 public:

@@ -164,12 +164,11 @@ SOURCES_CXX +=   \
 					  $(CORE_DIR)/Src/Pkgs/tinyxml2.cpp \
 					  $(CORE_DIR)/Src/ROMSet.cpp
 
-SOURCES_CXX += 		  $(CORE_DIR)/Src/OSD/SDL/Audio.cpp \
-					  $(CORE_DIR)/Src/OSD/SDL/Thread.cpp \
-					  $(CORE_DIR)/Src/OSD/Unix/FileSystemPath.cpp \
-				      $(CORE_DIR)/Src/OSD/SDL/Crosshair.cpp \
-					  $(CORE_DIR)/Src/OSD/SDL/Gui.cpp \
-					  $(CORE_DIR)/Src/OSD/SDL/SDLInputSystem.cpp \
+SOURCES_CXX += 		  $(CORE_DIR)/Src/OSD/Unix/FileSystemPath.cpp \
+					  $(CORE_DIR)/Src/OSD/libretro/libretroAudio.cpp \
+					  $(CORE_DIR)/Src/OSD/libretro/libretroThread.cpp \
+					  $(CORE_DIR)/Src/OSD/libretro/libretroCrosshair.cpp \
+					  $(CORE_DIR)/Src/OSD/libretro/libretroGui.cpp \
 					  $(CORE_DIR)/Src/OSD/libretro/LibretroBlockFileMemory.cpp \
 					  $(CORE_DIR)/Src/OSD/libretro/CLibretroInputSystem.cpp \
 					  $(CORE_DIR)/Src/OSD/libretro/LibretroWrapper.cpp \
