@@ -15,6 +15,10 @@
 nul
 /old
 
+# VS Code
+.vscode/
+
+# MSVC specific
 /msvc/Debug
 /msvc/Release
 /msvc/*.suo
@@ -22,6 +26,5 @@ nul
 /msvc/*.sdf
 /msvc/*.db
 /msvc/x64
-/msvc/.vs/msvc-2010/v14/*.suo
-/msvc/.vs/msvc-2015/v14/*.suo
-/msvc/msvc-2015.VC.VC.opendb
+/msvc/.vs/
+/msvc/*.opendb

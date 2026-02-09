@@ -14,3 +14,9 @@ A modernized fork of the Sega Model 3 (Supermodel) Libretro core, optimized for 
 ```bash
 sudo apt update
 sudo apt install build-essential libsdl2-dev libglew-dev libgl1-mesa-dev libglu1-mesa-dev zlib1g-dev
+```
+
+### 2. Compile the project
+```bash
+make -j$(nproc)
+```
