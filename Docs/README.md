@@ -1,0 +1,16 @@
+# Supermodel (Sega Model 3) - Libretro Port (Modernized)
+
+A modernized fork of the Sega Model 3 (Supermodel) Libretro core, optimized for modern Linux distributions and updated to C++17 standards.
+
+## 🚀 Key Improvements
+- **C++17 Migration:** Replaced legacy SDL-based threading and crosshair logic with native C++17 and Libretro-standard implementations.
+- **Ubuntu 24.04 Compatibility:** Fixed header conflicts and link-time errors present in the original codebase.
+- **Improved Input Mapping:** Full support for Analog/Digital gamepads and keyboard out of the box.
+- **Native Performance:** Optimized for Ubuntu 24.04 (x86_64) hitting full native frame rates.
+
+## 🛠 Build Instructions (Ubuntu 24.04)
+
+### 1. Install Dependencies
+```bash
+sudo apt update
+sudo apt install build-essential libsdl2-dev libglew-dev libgl1-mesa-dev libglu1-mesa-dev zlib1g-dev
