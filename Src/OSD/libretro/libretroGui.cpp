@@ -13,7 +13,13 @@
 #include "../../Util/NewConfig.h"
 #include "../../Util/ConfigBuilders.h"
 #include "../Src/Inputs/Inputs.h"
+#include "LibretroConfigProvider.h"
 #include "LibretroWrapper.h"
+#include <filesystem>
+namespace fs = std::filesystem;
+
+
+auto config = LibretroConfigProvider::DefaultConfig(LibretroWrapper::GetGameXMLPath());
 
 // SDL stubs to keep the existing function signatures as similar as possible
 
@@ -171,7 +177,7 @@ static void CreateControls(Util::Config::Node& config, const std::string group)
 static void SetDefaultKeyVal(std::shared_ptr<CInput> input)
 {
     std::string key = std::string("Input") + input->id;
-    auto defaultConfig = DefaultConfig();
+    auto defaultConfig = LibretroConfigProvider::DefaultConfig(LibretroWrapper::s_gameXMLFilePath);
     // Use a safe iterator lookup for the default config to prevent crashes
     for (const auto& n : defaultConfig) {
         if (n.Key() == key) {
@@ -274,7 +280,7 @@ static void DrawButtonOptions(Util::Config::Node& config, int selectedGameIndex,
     if (ImGui::Button("Load Defaults")) ImGui::OpenPopup("Confirm Load");
     if (ImGui::BeginPopupModal("Confirm Load", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::Text("Are you sure you want to load defaults?"); ImGui::Separator();
-        if (ImGui::Button("Yes", ImVec2(120, 0))) { config = DefaultConfig(); ImGui::CloseCurrentPopup(); }
+        if (ImGui::Button("Yes", ImVec2(120, 0))) { config = LibretroConfigProvider::DefaultConfig(LibretroWrapper::s_gameXMLFilePath); ImGui::CloseCurrentPopup(); }
         ImGui::SameLine();
         if (ImGui::Button("Cancel", ImVec2(120, 0))) ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
@@ -357,13 +363,26 @@ std::vector<std::string> RunGUI(const std::string& configPath, Util::Config::Nod
     ImGui::GetIO().IniFilename = nullptr;
     ImGui::StyleColorsDark();
 
-    // Safe XML lookup
-    std::string xmlFile = "Config/Games.xml";
+    // 1. Determine the XML filename
+    std::string xmlName = "Games.xml";
     for (const auto& n : config) {
-        if (n.Key() == "GameXMLFile") { xmlFile = n.ValueAs<std::string>(); break; }
+        if (n.Key() == "GameXMLFile") { xmlName = n.ValueAs<std::string>(); break; }
     }
 
-    GameLoader loader(xmlFile);
+    // 2. Construct absolute path
+    fs::path fullXmlPath = fs::path(configPath) / xmlName;
+
+    // 3. Safety Check: Verify file exists before loading
+    if (!fs::exists(fullXmlPath)) {
+        // Log to terminal for the developer/user
+        fprintf(stderr, "[Supermodel GUI] ERROR: %s not found!\n", fullXmlPath.c_str());
+        fprintf(stderr, "[Supermodel GUI] Please ensure assets are in: %s\n", configPath.c_str());
+        
+        // Return early to avoid GameLoader crash
+        return {}; 
+    }
+
+    GameLoader loader(fullXmlPath.string());
     auto& games = loader.GetGames();
     int selectedGame = -1;
     bool exit = false, saveSettings = true;

@@ -82,10 +82,8 @@ static bool gui_inited = false;
 static bool gui_show = false;
 static char bios_path[4096];
 static bool firmware_found = false;
-static int memcard_left_index = 0;                                                                 // Switchable memory cards
-static int memcard_left_index_old;
-static int memcard_right_index = 1;
-static int memcard_right_index_old;
+static bool overscan;
+static double last_sound_rate;
 bool setting_apply_analog_toggle  = false;
 bool setting_apply_analog_default = false;
 bool use_mednafen_memcard0_method = false;
@@ -99,35 +97,12 @@ int32_t EventCycles = 128;
 uint8_t spu_samples = 1;
 int32_t psx_overclock_factor = 0;                                                                  // CPU overclock factor (or 0 if disabled)
 unsigned psx_gpu_overclock_shift = 0;                                                              // GPU rasterizer overclock shift
-
-// Sets how often (in number of output frames/retro_run invocations)
-// the internal framerace counter should be updated if
-// display_internal_framerate is true.
-#define INTERNAL_FPS_SAMPLE_PERIOD 64
-
 static int override_bios;
-//enum dither_mode psx_gpu_dither_mode;
-
-//iCB: PGXP options
-unsigned int psx_pgxp_mode;
-int psx_pgxp_2d_tol;
-unsigned int psx_pgxp_vertex_caching;
-unsigned int psx_pgxp_texture_correction;
-unsigned int psx_pgxp_nclip;
-// \iCB
-
-#define NEGCON_RANGE 0x7FFF
-
 char retro_save_directory[4096];
 char retro_base_directory[4096];
 char retro_cd_base_directory[4096];
 static char retro_cd_path[4096];
 char retro_cd_base_name[4096];
-#ifdef _WIN32
-   static char retro_slash = '\\';
-#else
-   static char retro_slash = '/';
-#endif
 
 enum
 {
@@ -148,13 +123,9 @@ enum
    PSX_EVENT__SYNLAST,
    PSX_EVENT__COUNT
 };
-
-
 bool content_is_pal = false;
 uint8_t widescreen_hack;
 uint8_t widescreen_hack_aspect_ratio_setting;
-uint8_t psx_gpu_upscale_shift;
-uint8_t psx_gpu_upscale_shift_hw;
 int line_render_mode;
 int filter_mode;
 bool opaque_check;
@@ -170,19 +141,35 @@ enum core_timing_fps_modes core_timing_fps_mode;// = AUTO_TOGGLE_TIMING;
 bool currently_interlaced = true;
 bool interlace_setting_dirty = false;
 uint8_t startup_frame_count = 0;
-
 int aspect_ratio_setting = 0;
 bool aspect_ratio_dirty = false;
 bool is_monkey_hero = false;
-
 int setting_initial_scanline = 0;
 int setting_initial_scanline_pal = 0;
 int setting_last_scanline = 239;
 int setting_last_scanline_pal = 287;
 int setting_crosshair_color_p1 = 0xFF0000;
 int setting_crosshair_color_p2 = 0x0080FF;
-
+static std::vector<char*> *cdifs = NULL;
+static std::vector<const char *> cdifs_scex_ids;
+static bool eject_state;
+static bool CD_IsPBP = false;
+extern int PBP_DiscCount;
+static int PBP_PhysicalDiscCount;
+static uint64_t Memcard_PrevDC[8];
+static int64_t Memcard_SaveDelay[8];
+static uint32_t TextMem_Start;
+static std::vector<uint8_t> TextMem;
+static unsigned DMACycleSteal = 0;                          // Doesn't need to be saved in save states, since it's calculated in the ForceEventUpdates() call chain.
+static int32_t Running;                                     // Set to -1 when not desiring exit, and 0 when we are.
 #define PSX_EVENT_MAXTS             0x20000000
+#define INTERNAL_FPS_SAMPLE_PERIOD 64                       // Sets how often (in number of output frames/retro_run invocations).
+#define NEGCON_RANGE 0x7FFF                                 // the internal framerace counter should be updated if.
+#ifdef _WIN32                                               // display_internal_framerate is true.
+   static char retro_slash = '\\';
+#else
+   static char retro_slash = '/';
+#endif
 
 static bool firmware_is_present(unsigned region)
 {
@@ -227,40 +214,6 @@ static void extract_directory(char *buf, const char *path, size_t size)
       buf[0] = '\0';
 }
 
-static std::vector<char*> *cdifs = NULL;
-static std::vector<const char *> cdifs_scex_ids;
-
-static bool eject_state;
-
-static bool CD_TrayOpen;
-int CD_SelectedDisc;     // -1 for no disc
-
-static bool CD_IsPBP = false;
-extern int PBP_DiscCount;
-static int PBP_PhysicalDiscCount;
-
-typedef struct
-{
-   unsigned initial_index;
-   std::string initial_path;
-   std::vector<std::string> image_paths;
-   std::vector<std::string> image_labels;
-} disk_control_ext_info_t;
-
-static disk_control_ext_info_t disk_control_ext_info;
-
-static uint64_t Memcard_PrevDC[8];
-static int64_t Memcard_SaveDelay[8];
-
-static uint32_t TextMem_Start;
-static std::vector<uint8_t> TextMem;
-
-static unsigned DMACycleSteal = 0;   // Doesn't need to be saved in save states, since it's calculated in the ForceEventUpdates() call chain.
-
-
-static int32_t Running; // Set to -1 when not desiring exit, and 0 when we are.
-
-
 static bool TestMagic(const char *name, RFILE *fp, int64_t size)
 {
    uint8_t header[8];
@@ -284,22 +237,6 @@ static bool TestMagic(const char *name, RFILE *fp, int64_t size)
 
    return(true);
 }
-
-static void SetDiscWrapper(const bool CD_TrayOpen) {
-    char *cdif = NULL;
-    const char *disc_id = NULL;
-    if (CD_SelectedDisc >= 0 && !CD_TrayOpen) {
-        // only allow one pbp file to be loaded (at index 0)
-        if (CD_IsPBP) {
-            cdif = (*cdifs)[0];
-            disc_id = cdifs_scex_ids[0];
-        } else {
-            cdif = (*cdifs)[CD_SelectedDisc];
-            disc_id = cdifs_scex_ids[CD_SelectedDisc];
-        }
-    }
-}
-
 
 /* LED interface */
 static retro_set_led_state_t led_state_cb = NULL;
@@ -325,69 +262,6 @@ static void retro_led_interface(void)
    }
 }
 
-static int Load(const char *name, RFILE *fp)
-{
-   int64_t size     = filestream_get_size(fp);
-   const bool IsPSF = false;
-   char image_label[4096];
-
-   image_label[0] = '\0';
-
-   if(!TestMagic(name, fp, size))
-   {
-      return -1;
-   }
-
-   TextMem.resize(0);
-
-   if(size >= 0x800)
-   {
-      int64_t len     = size;
-      uint8_t *header = (uint8_t*)malloc(len * sizeof(uint8_t));
-
-      filestream_read_file(name, (void**)&header, &len);
-
-      free(header);
-   }
-
-   disk_control_ext_info.image_paths.push_back(name);
-   extract_basename(image_label, name, sizeof(image_label));
-   disk_control_ext_info.image_labels.push_back(image_label);
-
-   return(1);
-}
-
-static void CloseGame(void)
-{
-   int i;
-
-   for (i = 0; i < 8; i++)
-   {
-      if (i == 0 && !use_mednafen_memcard0_method)
-      {
-         continue;
-      }
-
-      // If there's an error saving one memcard, don't skip trying to save the other, since it might succeed and
-      // we can reduce potential data loss!
-      try
-      {
-         char ext[64];
-         const char *memcard = NULL;
-         if (i == 0)
-            snprintf(ext, sizeof(ext), "%d.mcr", memcard_left_index);
-         else if (i == 1)
-            snprintf(ext, sizeof(ext), "%d.mcr", memcard_right_index);
-         else
-            snprintf(ext, sizeof(ext), "%d.mcr", i);
-         //memcard = MDFN_MakeFName(MDFNMKF_SAV, 0, ext);
-         //PSX_FIO->SaveMemcard(i, memcard);
-      }
-      catch(std::exception &e)
-      {
-      }
-   }
-}
 
 static bool DecodeGS(const std::string& cheat_string, char* patch)
 {
@@ -429,30 +303,6 @@ static bool DecodeGS(const std::string& cheat_string, char* patch)
 
 }
 
-static bool overscan;
-static double last_sound_rate;
-
-#ifdef NEED_DEINTERLACER
-static bool PrevInterlaced;
-static Deinterlacer deint;
-#endif
-
-//static MDFN_Surface *surf = NULL;
-
-static void alloc_surface(void)
-{
-   //MDFN_PixelFormat pix_fmt(MDFN_COLORSPACE_RGB, 16, 8, 0, 24);
-   uint32_t width;  //= MEDNAFEN_CORE_GEOMETRY_MAX_W;
-   uint32_t height; //= content_is_pal ? MEDNAFEN_CORE_GEOMETRY_MAX_H : 480;
-
-   //width  <<= GPU_get_upscale_shift();
-   //height <<= GPU_get_upscale_shift();
-
-   // if (surf != NULL)
-   //    delete surf;
-
-   // surf = new MDFN_Surface(NULL, width, height, width, pix_fmt);
-}
 
 static void check_system_specs(void)
 {
@@ -491,9 +341,6 @@ static void fallback_log(enum retro_log_level level, const char *fmt, ...)
 void retro_init(void)
 {
    struct retro_log_callback log;
-   uint64_t serialization_quirks = RETRO_SERIALIZATION_QUIRK_CORE_VARIABLE_SIZE;
-   unsigned dci_version          = 0;
-
    if (environ_cb(RETRO_ENVIRONMENT_GET_LOG_INTERFACE, &log))
       log_cb = log.log;
    else
@@ -501,25 +348,30 @@ void retro_init(void)
 
    const char *dir = NULL;
 
+   // 1. Setup the Config/System Directory
    if (environ_cb(RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY, &dir) && dir)
    {
-      snprintf(retro_base_directory, sizeof(retro_base_directory), "%s", dir);
-   }
-
-   if (environ_cb(RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY, &dir) && dir)
-   {
-      // If save directory is defined use it, otherwise use system directory
-      if (dir)
-         snprintf(retro_save_directory, sizeof(retro_save_directory), "%s", dir);
-      else
-         snprintf(retro_save_directory, sizeof(retro_save_directory), "%s", retro_base_directory);
+      // Construct: [system_dir]/supermodel/Config
+      snprintf(retro_base_directory, sizeof(retro_base_directory), "%s/supermodel/Config", dir);
    }
    else
    {
-      /* TODO: Add proper fallback */
-      log_cb(RETRO_LOG_WARN, "Save directory is not defined. Fallback on using SYSTEM directory ...\n");
+      log_cb(RETRO_LOG_WARN, "System directory not defined. Using local 'Config' folder.\n");
+      snprintf(retro_base_directory, sizeof(retro_base_directory), "Config");
+   }
+
+   // 2. Setup the Save Directory (NVRAM/SRAM)
+   if (environ_cb(RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY, &dir) && dir)
+   {
+      snprintf(retro_save_directory, sizeof(retro_save_directory), "%s/supermodel/Saves", dir);
+   }
+   else
+   {
       snprintf(retro_save_directory, sizeof(retro_save_directory), "%s", retro_base_directory);
    }
+
+   log_cb(RETRO_LOG_INFO, "Supermodel Config Path: %s\n", retro_base_directory);
+   log_cb(RETRO_LOG_INFO, "Supermodel Save Path: %s\n", retro_save_directory);
 
    check_system_specs();
 }
@@ -534,7 +386,6 @@ bool retro_load_game_special(unsigned, const struct retro_game_info *, size_t)
    return false;
 }
 
-
 static bool boot = true;
 
 // shared memory cards support
@@ -545,46 +396,6 @@ static bool has_new_timing = false;
 
 uint8_t analog_combo[2] = {0};
 uint8_t analog_combo_hold = 0;
-
-extern void PSXDitherApply(bool);
-
-static bool MDFNI_LoadGame(const char *name)
-{
-   RFILE *GameFile = NULL;
-   size_t name_len = strlen(name);
-
-   if(name_len > 3 && (
-      !strcasecmp(name + name_len - 3, "cue") ||
-      !strcasecmp(name + name_len - 3, "ccd") ||
-      !strcasecmp(name + name_len - 3, "toc") ||
-      !strcasecmp(name + name_len - 3, "m3u") ||
-      !strcasecmp(name + name_len - 3, "chd") ||
-      !strcasecmp(name + name_len - 3, "pbp")
-      ))
-    return NULL;//MDFNI_LoadCD(name);
-
-   GameFile = filestream_open(name,
-         RETRO_VFS_FILE_ACCESS_READ,
-         RETRO_VFS_FILE_ACCESS_HINT_NONE);
-
-   if(!GameFile)
-      goto error;
-
-   if(Load(name, GameFile) <= 0)
-      goto error;
-
-   filestream_close(GameFile);
-   GameFile   = NULL;
-
-   return true;
-
-error:
-   if (GameFile)
-      filestream_close(GameFile);
-   GameFile     = NULL;
-
-   return false;
-}
 
 static bool retro_set_geometry(void)
 {
@@ -642,8 +453,8 @@ void context_reset(void)                                                        
     // Pause emulation threads (safe for GL teardown)
     emu->PauseThreads();
 
-    // Recreate ONLY GL resources
-    wrapper.InitGL();   // your renderer-only function
+   
+    wrapper.InitGL();                                                               // Recreate ONLY GL resources
 
     // Resume emulation
     emu->ResumeThreads();
@@ -662,15 +473,11 @@ bool retro_load_game(const struct retro_game_info *info)
    hw_render.depth = true;
    hw_render.stencil = true; 
 
-   // 3. Give the address to RetroArch. 
-   // CRITICAL: RetroArch writes the function pointers directly into this memory address!
    if (!environ_cb(RETRO_ENVIRONMENT_SET_HW_RENDER, &hw_render)) {
        return false;
    }
-
-   // 4. NOW pass the populated struct (or pointer) to your wrapper
-   // wrapper.setHwRender(hw_render); 
-   // Better yet, just let wrapper access the global 'hw_render' or pass by pointer.
+   
+   wrapper.InitializePaths(retro_base_directory);
    wrapper.setHwRender(hw_render); 
 
    enum retro_pixel_format fmt = RETRO_PIXEL_FORMAT_XRGB8888;
@@ -678,11 +485,7 @@ bool retro_load_game(const struct retro_game_info *info)
       return false;
 
    fprintf(stderr, "SUPERMODEL: Content Path: %s\n", info->path);
-   
-   // 5. Do NOT call InitGL here immediately if it relies on get_current_framebuffer.
-   // The context might not be active yet. The 'context_reset' callback will signal 
-   // when it is safe to call InitGL.
-   
+      
    int emulation = wrapper.Emulate(info->path);
    wrapper.SuperModelInit(wrapper.getGame());
 
@@ -730,18 +533,12 @@ void retro_get_system_av_info(struct retro_system_av_info *info)
 
 void retro_deinit(void)
 {
-   // delete surf;
-   // surf = NULL;
-
    libretro_supports_option_categories = false;
    libretro_supports_bitmasks = false;
 }
 
 unsigned retro_get_region(void)
 {
-   // simias: should I override this when fast_pal is set?
-   //
-   // I'm not entirely sure what's that used for.
    return content_is_pal ? RETRO_REGION_PAL : RETRO_REGION_NTSC;
 }
 
@@ -835,8 +632,8 @@ size_t retro_serialize_size(void)
     if (g_cached_serialize_size > 0)
         return g_cached_serialize_size;
 
-    // This block should only run ONCE in the lifetime of the core
-    if (wrapper.getEmulator() != nullptr)
+    
+    if (wrapper.getEmulator() != nullptr)                               // This block should only run ONCE in the lifetime of the core                   
     {
         CBlockFileCounter counter;
         wrapper.getEmulator()->SaveState(&counter);
@@ -853,7 +650,7 @@ bool retro_serialize(void* data, size_t size) {
     if (!data || size == 0) return false;
     CBlockFileMemory mem(data, size);
     wrapper.getEmulator()->SaveState(&mem);
-    mem.Finish(); // <--- Crucial! Sets the final block's length
+    mem.Finish();                                                       // Crucial! Sets the final block's length
     return true;
 }
 
@@ -861,15 +658,11 @@ bool retro_unserialize(const void* data, size_t size)
 {
     if (!data || size == 0) return false;
 
-    // Construct the memory wrapper around the data RetroArch gave us
-    CBlockFileMemory mem(const_cast<void*>(data), size);
     
-    // We call LoadState directly. 
-    // Because retro_serialize_size now returns a cached value, 
-    // no SaveState logic interfered with the internal state before this call.
-    wrapper.getEmulator()->LoadState(&mem);
-    return true;
-}
+    CBlockFileMemory mem(const_cast<void*>(data), size);                // Construct the memory wrapper around the data RetroArch gave us
+    wrapper.getEmulator()->LoadState(&mem);                             // We call LoadState directly. 
+    return true;                                                        // Because retro_serialize_size now returns a cached value, 
+}                                                                      // no SaveState logic interfered with the internal state before this call.
 bool UsingFastSavestates(void)
 {
    int flags;

@@ -18,6 +18,12 @@ public:
 
     CInputs *Inputs = nullptr;
 
+    static std::string s_analysisPath;
+    static std::string s_configFilePath;
+    static std::string s_gameXMLFilePath;
+    static std::string s_musicXMLFilePath;
+    static std::string s_logFilePath;
+    
     LibretroWrapper();
     virtual ~LibretroWrapper();
 
@@ -34,7 +40,8 @@ public:
     Game getGame() const { return game; }
     IEmulator* getEmulator() const { return Model3; }
     retro_hw_render_callback getHwRender() const { return hw_render; }
-
+    static const std::string& GetGameXMLPath() { return s_gameXMLFilePath; }
+    
     void setXRes(unsigned val) { xRes = val; }
     void setYRes(unsigned val) { yRes = val; }
     void setXOffset(unsigned val) { xOffset = val; }
@@ -46,7 +53,7 @@ public:
     void setCRTColors(CRTcolor val) { CRTcolors = val; }
     void setWindow(SDL_Window* window) { s_window = window; }
     void setHwRender(retro_hw_render_callback val) { hw_render = val; }
-
+    void InitializePaths(const std::string& baseConfigPath);
     void UpdateScreenSize(unsigned newWidth, unsigned newHeight);
     int Emulate(const char* romPath);
     Result SetGLGeometry(unsigned *xOffsetPtr, unsigned *yOffsetPtr, unsigned *xResPtr, unsigned *yResPtr, unsigned *totalXResPtr, unsigned *totalYResPtr, bool keepAspectRatio);
