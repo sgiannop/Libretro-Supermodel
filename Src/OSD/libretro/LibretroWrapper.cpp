@@ -41,13 +41,11 @@
 #include "CLibretroInputSystem.h"
 #include "libretroGui.h"
 #include "LibretroConfigProvider.h"
-/******************************************************************************
- Global Run-time Config
-******************************************************************************/
 
 /******************************************************************************
  Global Run-time Config
 ******************************************************************************/
+
 std::string LibretroWrapper::s_analysisPath;
 std::string LibretroWrapper::s_configFilePath;
 std::string LibretroWrapper::s_gameXMLFilePath;
@@ -62,7 +60,6 @@ static LibretroWrapper* g_ctx = nullptr;
  */
 static CCrosshair* s_crosshair = nullptr;
 
-
 void LibretroWrapper::InitializePaths(const std::string& baseConfigPath) 
 {
     s_configFilePath  = baseConfigPath + "/Supermodel.ini";                                         // baseConfigPath is now something like "/home/user/retroarch/system/supermodel/Config"
@@ -75,122 +72,9 @@ void LibretroWrapper::InitializePaths(const std::string& baseConfigPath)
     std::cout << "[Supermodel] Paths remapped to: " << baseConfigPath << std::endl;
 }
 
-Result LibretroWrapper::SetGLGeometry(unsigned *xOffsetPtr, unsigned *yOffsetPtr, unsigned *xResPtr, unsigned *yResPtr, unsigned *totalXResPtr, unsigned *totalYResPtr, bool keepAspectRatio)
-{
-  // What resolution did we actually get?
-  int actualWidth;
-  int actualHeight;
-  SDL_GetWindowSize(s_window, &actualWidth, &actualHeight);
-  *totalXResPtr = actualWidth;
-  *totalYResPtr = actualHeight;
-
-  // If required, fix the aspect ratio of the resolution that the user passed to match Model 3 ratio
-  float xResF = float(*xResPtr);
-  float yResF = float(*yResPtr);
-  if (keepAspectRatio)
-  {
-    float model3Ratio = float(496.0/384.0);
-    if (yResF < (xResF/model3Ratio))
-      xResF = yResF*model3Ratio;
-    if (xResF < (yResF*model3Ratio))
-      yResF = xResF/model3Ratio;
-  }
-
-  // Center the visible area
-  *xOffsetPtr = (*xResPtr - (unsigned) xResF)/2;
-  *yOffsetPtr = (*yResPtr - (unsigned) yResF)/2;
-
-  // If the desired resolution is smaller than what we got, re-center again
-  if (int(*xResPtr) < actualWidth)
-    *xOffsetPtr += (actualWidth - *xResPtr)/2;
-  if (int(*yResPtr) < actualHeight)
-    *yOffsetPtr += (actualHeight - *yResPtr)/2;
-
-  // OpenGL initialization
-  glViewport(0,0,*xResPtr,*yResPtr);
-  glClearColor(0.0,0.0,0.0,0.0);
-  glClearDepth(1.0);
-  glDepthFunc(GL_LESS);
-  glEnable(GL_DEPTH_TEST);
-  glDisable(GL_CULL_FACE);
-
-  // Clear both buffers to ensure a black border
-  for (int i = 0; i < 3; i++)
-  {
-    glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
-    SDL_GL_SwapWindow(s_window);
-  }
-
-  // Write back resolution parameters
-  *xResPtr = (unsigned) xResF;
-  *yResPtr = (unsigned) yResF;
-
-  UINT32 correction = (UINT32)(((*yResPtr / 384.) * 2.) + 0.5); // due to the 2D layer compensation (2 pixels off)
-
-  glEnable(GL_SCISSOR_TEST);
-
-  // Scissor box (to clip visible area)
-  if (s_runtime_config["WideScreen"].ValueAsDefault<bool>(false))
-  {
-    glScissor(0* aaValue, correction* aaValue, *totalXResPtr * aaValue, (*totalYResPtr - (correction * 2)) * aaValue);
-  }
-  else
-  {
-    glScissor((*xOffsetPtr + correction) * aaValue, (*yOffsetPtr + correction) * aaValue, (*xResPtr - (correction * 2)) * aaValue, (*yResPtr - (correction * 2)) * aaValue);
-  }
-  return Result::OKAY;
-}
-
 static void GLAPIENTRY DebugCallback(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length, const GLchar* message, const void* userParam)
 {
     printf("OGLDebug:: 0x%X: %s\n", id, message);
-}
-
-// In windows with an nvidia card (sorry not tested anything else) you can customise the resolution.
-// This also allows you to set a totally custom refresh rate. Apparently you can drive most monitors at
-// 57.5fps with no issues. Anyway this code will automatically pick up your custom refresh rate, and set it if it exists.
-// If it doesn't exist, then it'll probably just default to 60 or whatever your refresh rate is.
-void LibretroWrapper::SetFullScreenRefreshRate()
-{
-    float refreshRateHz = std::abs(s_runtime_config["RefreshRate"].ValueAs<float>());
-
-    if (refreshRateHz > 57.f && refreshRateHz < 58.f) {
-
-        int display_in_use = 0; /* Only using first display */
-
-        int display_mode_count = SDL_GetNumDisplayModes(display_in_use);
-        if (display_mode_count < 1) {
-            return;
-        }
-
-        for (int i = 0; i < display_mode_count; ++i) {
-
-            SDL_DisplayMode mode;
-
-            if (SDL_GetDisplayMode(display_in_use, i, &mode) != 0) {
-                return;
-            }
-
-            if (SDL_BITSPERPIXEL(mode.format) >= 24 && mode.w == totalXRes && mode.h == totalYRes) {
-                if (mode.refresh_rate == 57 || mode.refresh_rate == 58) {       // nvidia is fairly flexible in what refresh rate windows will show, so we can match either 57 or 58,
-                    int result = SDL_SetWindowDisplayMode(s_window, &mode);     // both are totally non standard frequencies and shouldn't be set incorrectly
-                    if (result == 0) {
-                        printf("Custom fullscreen mode set: %ix%i@57.524 Hz\n", mode.w, mode.h);
-                    }
-                    break;
-                }
-            }
-        }
-    }
-}
-
-void LibretroWrapper::DestroyGLScreen()
-{
-  if (s_window != nullptr)
-  {
-    SDL_GL_DeleteContext(SDL_GL_GetCurrentContext());
-    SDL_DestroyWindow(s_window);
-  }
 }
 
 void LibretroWrapper::UpdateScreenSize(unsigned newWidth, unsigned newHeight)
@@ -226,18 +110,12 @@ void LibretroWrapper::Screenshot()
     time_t now = std::time(nullptr);
     tm* ltm = std::localtime(&now);
     std::string file = Util::Format() << FileSystemPath::GetPath(FileSystemPath::Screenshots)
-        << "Screenshot_"
-        << std::setfill('0') << std::setw(4) << (1900 + ltm->tm_year)
-        << '-'
-        << std::setw(2) << (1 + ltm->tm_mon)
-        << '-'
-        << std::setw(2) << ltm->tm_mday
-        << "_("
-        << std::setw(2) << ltm->tm_hour
-        << '-'
-        << std::setw(2) << ltm->tm_min
-        << '-'
-        << std::setw(2) << ltm->tm_sec
+        << "Screenshot_" << std::setfill('0') << std::setw(4) << (1900 + ltm->tm_year)
+        << '-' << std::setw(2) << (1 + ltm->tm_mon)
+        << '-' << std::setw(2) << ltm->tm_mday
+        << "_(" << std::setw(2) << ltm->tm_hour
+        << '-' << std::setw(2) << ltm->tm_min
+        << '-' << std::setw(2) << ltm->tm_sec
         << ").bmp";
 
     std::cout << "Screenshot created: " << file << std::endl;
@@ -247,7 +125,6 @@ void LibretroWrapper::Screenshot()
 /******************************************************************************
  Render State Analysis
 ******************************************************************************/
-
 
 /******************************************************************************
  Save States and NVRAM
@@ -272,12 +149,9 @@ LibretroWrapper::LibretroWrapper() :
     totalXRes(800), totalYRes(600), aaValue(0)
 {
       g_ctx = this;
-
 }
 
-LibretroWrapper::~LibretroWrapper() 
-{
-}
+LibretroWrapper::~LibretroWrapper() {}
 
 static void SaveState(IEmulator *Model3)
 {
@@ -403,8 +277,6 @@ static void LoadNVRAM(IEmulator *Model3)
 //     model->EEPROM.SetRawBuffer(g_saveRam, EEPROM_SIZE);
 // }
 
-
-
 /******************************************************************************
  Video Callbacks
 ******************************************************************************/
@@ -419,13 +291,12 @@ bool BeginFrameVideo()
 
 void EndFrameVideo()
 {
-
   // Show crosshairs for light gun games
   if (videoInputs)
     s_crosshair->Update(currentInputs, videoInputs, g_ctx->getXOffset(), g_ctx->getYOffset(), g_ctx->getXRes(), g_ctx->getYRes());
 
   // Swap the buffers
-  SDL_GL_SwapWindow(g_ctx->getWindow());
+  // SDL_GL_SwapWindow(g_ctx->getWindow());
 }
 
 /******************************************************************************
@@ -477,7 +348,6 @@ bool LibretroWrapper::InitRenderers()
     return true;
 }
 
-
 int LibretroWrapper::SuperModelInit(const Game &game) {
 
   initialState = s_runtime_config["InitStateFile"].ValueAs<std::string>();
@@ -486,7 +356,6 @@ int LibretroWrapper::SuperModelInit(const Game &game) {
   quit = false;
   paused = false;
   dumpTimings = false;
-
 
   // Initialize and load ROMs
   if (Result::OKAY != Model3->Init())
@@ -557,15 +426,24 @@ QuitError:
 
 int LibretroWrapper::Supermodel(const Game &game)
 {
+    extern void PlayCallback(void *userdata, UINT8 *stream, int len);
+    extern UINT32 GetAvailableAudioLen(); // We'll create this helper
+    extern int bytes_per_frame_host;
     if (paused)
-      Model3->RenderFrame();
+        Model3->RenderFrame();
     else
-      Model3->RunFrame();
+    {
+        Model3->RunFrame();
 
-    // Check UI controls
+      // ALWAYS push exactly one frame. 
+      // Because PlayCallback now pads with silence if the emulator is slow.
+      int samples_to_push = 44100 / 57.53; // Approx 766 samples
+      int bytes_to_push = samples_to_push * 4; // 2 channels * 16-bit
+      PlayCallback(NULL, NULL, bytes_to_push);
+    }
+
     if (Inputs->uiExit->Pressed())
     {
-      // Quit emulator
       quit = true;
     }
     else if (Inputs->uiReset->Pressed())
@@ -573,46 +451,30 @@ int LibretroWrapper::Supermodel(const Game &game)
       if (!paused)
       {
         Model3->PauseThreads();
-        SetAudioEnabled(false);
       }
 
-      // Reset emulator
       Model3->Reset();
-
-#ifdef SUPERMODEL_DEBUGGER
-      // If debugger was supplied, reset it too
-      if (Debugger != NULL)
-        Debugger->Reset();
-#endif // SUPERMODEL_DEBUGGER
 
       if (!paused)
       {
         Model3->ResumeThreads();
-        SetAudioEnabled(true);
       }
 
       puts("Model 3 reset.");
     }
     else if (Inputs->uiPause->Pressed())
     {
-      // Toggle emulator paused flag
-      paused = !paused;
+      paused = !paused;                                 // Toggle emulator paused flag
 
       if (paused)
       {
         Model3->PauseThreads();
-        SetAudioEnabled(false);
-        snprintf(titleStr, sizeof(titleStr), "%s (Paused)", baseTitleStr);
-        SDL_SetWindowTitle(s_window, titleStr);
       }
       else
       {
         Model3->ResumeThreads();
-        SetAudioEnabled(true);
-        SDL_SetWindowTitle(s_window, baseTitleStr);
       }
 
-      // Send paused value as output
       if (Outputs != NULL)
         Outputs->SetValue(OutputPause, paused);
     }
@@ -621,22 +483,20 @@ int LibretroWrapper::Supermodel(const Game &game)
       if (!paused)
       {
         Model3->PauseThreads();
-        SetAudioEnabled(false);
       }
 
-      // Save game state
-      SaveState(Model3);
+      
+      SaveState(Model3);                                  // Save game state
 
       if (!paused)
       {
         Model3->ResumeThreads();
-        SetAudioEnabled(true);
       }
     }
     else if (Inputs->uiChangeSlot->Pressed())
     {
-      // Change save slot
-      ++s_saveSlot;
+      
+      ++s_saveSlot;                                      // Change save slot
       s_saveSlot %= 10; // clamp to [0,9]
       printf("Save slot: %d\n", s_saveSlot);
     }
@@ -645,22 +505,13 @@ int LibretroWrapper::Supermodel(const Game &game)
       if (!paused)
       {
         Model3->PauseThreads();
-        SetAudioEnabled(false);
       }
 
-      // Load game state
-      LoadState(Model3);
-
-#ifdef SUPERMODEL_DEBUGGER
-      // If debugger was supplied, reset it after loading state
-      if (Debugger != NULL)
-        Debugger->Reset();
-#endif // SUPERMODEL_DEBUGGER
+      LoadState(Model3);                                // Load game state              
 
       if (!paused)
       {
         Model3->ResumeThreads();
-        SetAudioEnabled(true);
       }
     }
     else if (Inputs->uiMusicVolUp->Pressed())
@@ -670,14 +521,8 @@ int LibretroWrapper::Supermodel(const Game &game)
       {
         int vol = (std::min)(200, s_runtime_config["MusicVolume"].ValueAs<int>() + 10);
         s_runtime_config.Get("MusicVolume").SetValue(vol);
-        printf("Music volume: %d%%", vol);
-        if (200 == vol)
-          puts(" (maximum)");
-        else
-          printf("\n");
+        printf("Music volume: %d%%\n", vol);
       }
-      else
-        puts("This game does not have an MPEG music board.");
     }
     else if (Inputs->uiMusicVolDown->Pressed())
     {
@@ -686,36 +531,22 @@ int LibretroWrapper::Supermodel(const Game &game)
       {
         int vol = (std::max)(0, s_runtime_config["MusicVolume"].ValueAs<int>() - 10);
         s_runtime_config.Get("MusicVolume").SetValue(vol);
-        printf("Music volume: %d%%", vol);
-        if (0 == vol)
-          puts(" (muted)");
-        else
-          printf("\n");
+        printf("Music volume: %d%%\n", vol);
       }
-      else
-        puts("This game does not have an MPEG music board.");
     }
     else if (Inputs->uiSoundVolUp->Pressed())
     {
       // Increase sound volume by 10%
-    int vol = (std::min)(200, s_runtime_config["SoundVolume"].ValueAs<int>() + 10);
+      int vol = (std::min)(200, s_runtime_config["SoundVolume"].ValueAs<int>() + 10);
       s_runtime_config.Get("SoundVolume").SetValue(vol);
-      printf("Sound volume: %d%%", vol);
-      if (200 == vol)
-        puts(" (maximum)");
-      else
-        printf("\n");
+      printf("Sound volume: %d%%\n", vol);
     }
     else if (Inputs->uiSoundVolDown->Pressed())
     {
       // Decrease sound volume by 10%
       int vol = (std::max)(0, s_runtime_config["SoundVolume"].ValueAs<int>() - 10);
       s_runtime_config.Get("SoundVolume").SetValue(vol);
-      printf("Sound volume: %d%%", vol);
-      if (0 == vol)
-        puts(" (muted)");
-      else
-        printf("\n");
+      printf("Sound volume: %d%%\n", vol);
     }
 #ifdef SUPERMODEL_DEBUGGER
     else if (Inputs->uiDumpInpState->Pressed())
@@ -732,13 +563,6 @@ int LibretroWrapper::Supermodel(const Game &game)
     {
       int crosshairs = (s_runtime_config["Crosshairs"].ValueAs<unsigned>() + 1) & 3;
       s_runtime_config.Get("Crosshairs").SetValue(crosshairs);
-      switch (crosshairs)
-      {
-      case 0: puts("Crosshairs disabled.");             break;
-      case 3: puts("Crosshairs enabled.");              break;
-      case 1: puts("Showing Player 1 crosshair only."); break;
-      case 2: puts("Showing Player 2 crosshair only."); break;
-      }
     }
     else if (Inputs->uiClearNVRAM->Pressed())
     {
@@ -750,21 +574,12 @@ int LibretroWrapper::Supermodel(const Game &game)
     {
       // Toggle frame limiting
       s_runtime_config.Get("Throttle").SetValue(!s_runtime_config["Throttle"].ValueAs<bool>());
-      printf("Frame limiting: %s\n", s_runtime_config["Throttle"].ValueAs<bool>() ? "On" : "Off");
     }
     else if (Inputs->uiScreenshot->Pressed())
     {
       // Make a screenshot
       Screenshot();
     }
-#ifdef SUPERMODEL_DEBUGGER
-      else if (Debugger != NULL && Inputs->uiEnterDebugger->Pressed())
-      {
-        // Break execution and enter debugger
-        Debugger->ForceBreak(true);
-      }
-    }
-#endif // SUPERMODEL_DEBUGGER
 
    if (s_runtime_config["ShowFrameRate"].ValueAs<bool>())
     {
@@ -778,27 +593,9 @@ int LibretroWrapper::Supermodel(const Game &game)
         M->DumpTimings();
     }
 
-//  // Make sure all threads are paused before shutting down
-//   Model3->PauseThreads();
-//   // Save NVRAM
-//   SaveNVRAM(Model3);
-
-//   // Close audio
-//   CloseAudio();
-
-  // Shut down renderers
-  // delete Render2D;
-  // delete Render3D;
-  // delete superAA;
-
   return 0;
 
-  // Quit with an error
 QuitError:
-  // delete Render2D;
-  // delete Render3D;
-  // delete superAA;
-
   return 1;
 }
 
@@ -866,7 +663,7 @@ Result LibretroWrapper::ConfigureInputs(CInputs *Inputs, Util::Config::Node *fil
       title.append("Configuring Default Inputs...");
     else
       title.append(Util::Format() << "Configuring Inputs for: " << game.title);
-    SDL_SetWindowTitle(s_window, title.c_str());
+    // SDL_SetWindowTitle(s_window, title.c_str());
 
     // Extract the relevant INI section (which will be the global section if no
     // game was specified, otherwise the game's node) in the file config, which
@@ -1265,29 +1062,20 @@ int LibretroWrapper::Emulate(const char* romPath)
 
     std::string selectedInputSystem = s_runtime_config["InputSystem"].ValueAs<std::string>();
     aaValue = s_runtime_config["Supersampling"].ValueAs<int>();
-
-
-// 1. Create the Hardware Implementation
-    // (Ensure you have defined CLibretroInputSystem elsewhere!)
-        m_inputSystem = std::make_shared<CLibretroInputSystem>();
-
+    m_inputSystem = std::make_shared<CLibretroInputSystem>();
     InputSystem = m_inputSystem;
 
     // 2. Create the CInputs Manager
-    // We pass the hardware system to it.
-    Inputs = new CInputs(m_inputSystem);
+    Inputs = new CInputs(m_inputSystem);                                                                      // We pass the hardware system to it.
     // 3. Initialize the Inputs
-    // This sets up the default mappings and prepares the system.
-    if (!Inputs->Initialize())
+    if (!Inputs->Initialize())                                                                                // This sets up the default mappings and prepares the system.
     {
         // Log error if initialization fails
         fprintf(stderr, "Failed to initialize Input System!\n");
         return 0; 
     }
 
-
     Model3 = new CModel3(s_runtime_config);
-
 
     if (ConfigureInputs(Inputs, &fileConfig, &s_runtime_config, game, cmd_line.config_inputs) != Result::OKAY)
     {
@@ -1311,8 +1099,6 @@ Exit:
     // delete Inputs;
     // delete Outputs;
     // delete s_crosshair;
-    // DestroyGLScreen();
-    // SDL_Quit();
 
     return exitCode;
 }
@@ -1339,4 +1125,3 @@ void LibretroWrapper::InitGL()
     // ONLY renderer recreation
     InitRenderers();   // delete + recreate Render2D/Render3D/superAA
 }
-

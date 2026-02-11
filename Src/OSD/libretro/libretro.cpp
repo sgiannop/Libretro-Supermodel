@@ -517,17 +517,14 @@ void retro_get_system_info(struct retro_system_info *info)
 
 void retro_get_system_av_info(struct retro_system_av_info *info)
 {
-   //sx_intf_get_system_av_info(info);
-
-   // Sega Model 3 native resolution is 496x384
    info->geometry.base_width   = 496;
    info->geometry.base_height  = 384;
    info->geometry.max_width    = 496;
    info->geometry.max_height   = 384;
    info->geometry.aspect_ratio = 4.0f / 3.0f;
 
-   // Model 3 runs at 60Hz
-   info->timing.fps           = 60.0;
+   // CHANGE THIS: Match your MODEL3_FPS exactly
+   info->timing.fps            = 57.53; 
    info->timing.sample_rate    = 44100.0;
 }
 

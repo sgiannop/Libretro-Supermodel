@@ -56,7 +56,6 @@ public:
     void InitializePaths(const std::string& baseConfigPath);
     void UpdateScreenSize(unsigned newWidth, unsigned newHeight);
     int Emulate(const char* romPath);
-    Result SetGLGeometry(unsigned *xOffsetPtr, unsigned *yOffsetPtr, unsigned *xResPtr, unsigned *yResPtr, unsigned *totalXResPtr, unsigned *totalYResPtr, bool keepAspectRatio);
     void SetFullScreenRefreshRate();
     int Supermodel(const Game &game);
     void DestroyGLScreen();

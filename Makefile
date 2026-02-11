@@ -635,10 +635,10 @@ all: $(TARGET)
 
 # Supermodel 3 needs specific libraries. 
 # We should use pkg-config where possible for Linux/Ubuntu.
-LIBS += $(shell pkg-config --libs glew gl glu zlib sdl2)
+LIBS += $(shell pkg-config --libs glew gl glu zlib)
 # If pkg-config fails on some systems, keep the fallback:
 ifeq ($(LIBS),)
-    LIBS += -lGLEW -lGL -lGLU -lz -lSDL2
+    LIBS += -lGLEW -lGL -lGLU -lz
 endif
 # Ensure we are using C++17 (required for modern Supermodel source)
 CXXFLAGS += -std=c++17
