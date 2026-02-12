@@ -33,13 +33,40 @@ sudo apt install build-essential libglew-dev libgl1-mesa-dev libglu1-mesa-dev zl
 make -j$(nproc)
 ```
 
-### 3. Compile for Windows (Cross-Compilation)
-Ensure you have the MinGW-w64 toolchain and zlib headers installed:
+## 3. Building for Windows
 
-```bash
-sudo apt install binutils-mingw-w64-x86-64 g++-mingw-w64-x86-64 libz-mingw-w64-dev
-make platform=win -j$(nproc)
-```
+You can build the core either natively on a Windows machine or via cross-compilation from a Linux system.
+
+### Option A: Native Windows Build (Recommended)
+To build the `.dll` directly on Windows, use the **MSYS2** environment with the **MinGW-w64** toolchain.
+
+1.  **Install MSYS2**: Download and install from [msys2.org](https://www.msys2.org/).
+2.  **Open the "MSYS2 MinGW 64-bit" terminal** (avoid using the default MSYS terminal).
+3.  **Install Dependencies**:
+    Run the following command to install the compiler, make, and zlib:
+    ```bash
+    pacman -S mingw-w64-x86_64-toolchain mingw-w64-x86_64-make mingw-w64-x86_64-zlib
+    ```
+4.  **Compile**:
+    Navigate to the source directory and run:
+    ```bash
+    mingw32-make platform=win -j%NUMBER_OF_PROCESSORS%
+    ```
+
+---
+
+### Option B: Cross-Compilation (from Ubuntu/Linux)
+If you are developing on a Linux system (like Ubuntu 24.04) and want to generate a Windows `.dll`:
+
+1.  **Install the MinGW-w64 toolchain**:
+    ```bash
+    sudo apt update
+    sudo apt install binutils-mingw-w64-x86-64 g++-mingw-w64-x86-64 libz-mingw-w64-dev
+    ```
+2.  **Compile**:
+    ```bash
+    make platform=win -j$(nproc)
+    ```
 
 ### 4. Install
 Copy the resulting binary to your RetroArch cores directory:
