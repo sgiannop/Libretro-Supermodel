@@ -163,7 +163,7 @@ SOURCES_CXX +=   \
 					  $(CORE_DIR)/Src/Pkgs/tinyxml2.cpp \
 					  $(CORE_DIR)/Src/ROMSet.cpp
 
-SOURCES_CXX += 		  $(CORE_DIR)/Src/OSD/Unix/FileSystemPath.cpp \
+SOURCES_CXX +=   \
 					  $(CORE_DIR)/Src/OSD/libretro/libretroAudio.cpp \
 					  $(CORE_DIR)/Src/OSD/libretro/libretroThread.cpp \
 					  $(CORE_DIR)/Src/OSD/libretro/libretroCrosshair.cpp \

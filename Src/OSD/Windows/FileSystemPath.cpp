@@ -19,7 +19,7 @@
  ** with Supermodel.  If not, see <http://www.gnu.org/licenses/>.
  **/
 
-#include "FileSystemPath.h"
+#include "../FileSystemPath.h"
 #include <string>
 
 namespace FileSystemPath

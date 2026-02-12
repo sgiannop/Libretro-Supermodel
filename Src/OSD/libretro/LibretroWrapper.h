@@ -1,4 +1,3 @@
-#include <SDL2/SDL_video.h>
 #include <Supermodel.h>
 #include <Model3/IEmulator.h>
 #include <libretro.h>
@@ -35,7 +34,6 @@ public:
     unsigned getTotalYRes() const { return totalYRes; }
     int getAaValue() const { return aaValue; }
     SuperAA* getSuperAA() const { return superAA; }
-    SDL_Window* getWindow() const { return s_window; }
     CRTcolor getCRTColors() const { return CRTcolors; }
     Game getGame() const { return game; }
     IEmulator* getEmulator() const { return Model3; }
@@ -51,7 +49,6 @@ public:
     void setAaValue(int val) { aaValue = val; }
     void setSuperAA(SuperAA* val) { superAA = val; }
     void setCRTColors(CRTcolor val) { CRTcolors = val; }
-    void setWindow(SDL_Window* window) { s_window = window; }
     void setHwRender(retro_hw_render_callback val) { hw_render = val; }
     void InitializePaths(const std::string& baseConfigPath);
     void UpdateScreenSize(unsigned newWidth, unsigned newHeight);
@@ -70,8 +67,6 @@ public:
     void InitGL();
 
 private:
-
-    SDL_Window *s_window = nullptr;
     static const char* s_outputNames[];
     struct retro_hw_render_callback hw_render;
     unsigned  xOffset, yOffset;                                         // offset of renderer output within OpenGL viewport

@@ -49,7 +49,7 @@
 
 extern "C" {
     extern bool FastSaveStates;                                                           // Fast Save States exclude string labels from variables 
-}                                                                                         // in the savestate, and are at least 20% faster.
+                                                                                    // in the savestate, and are at least 20% faster.
 
 retro_video_refresh_t video_cb = NULL;
 retro_environment_t environ_cb = NULL;
@@ -691,4 +691,5 @@ void retro_cheat_reset(void)
 void retro_cheat_set(unsigned index, bool enabled, const char * codeLine)
 {
    
+}
 }

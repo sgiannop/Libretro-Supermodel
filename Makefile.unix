@@ -1,0 +1,74 @@
+# --- Standard Unix/Linux ---
+ifeq ($(platform), unix)
+    TARGET := $(TARGET_NAME)_libretro.so
+    fpic := -fPIC
+    ifneq ($(findstring SunOS,$(shell uname -a)),)
+        CC = gcc
+        SHARED := -shared -z defs
+    else
+        SHARED := -shared -Wl,--version-script=$(CORE_DIR)/link.T -Wl,-no-undefined
+    endif
+    LIBS += $(shell pkg-config --libs glew gl glu zlib || echo "-lGLEW -lGL -lGLU -lz")
+    CXXFLAGS += -std=c++17
+    SOURCES_CXX += $(CORE_DIR)/Src/OSD/Unix/FileSystemPath.cpp
+
+# --- Portable Linux ---
+else ifeq ($(platform), linux-portable)
+    TARGET := $(TARGET_NAME)_libretro.so
+    fpic := -fPIC -nostdlib
+    SHARED := -shared -Wl,--version-script=$(CORE_DIR)/link.T
+    LIBM :=
+
+# --- Raspberry Pi ---
+else ifneq (,$(findstring rpi,$(platform)))
+    TARGET := $(TARGET_NAME)_libretro.so
+    fpic := -fPIC
+    SHARED := -shared -Wl,--version-script=$(CORE_DIR)/link.T -Wl,-no-undefined
+    ifeq ($(platform), rpi1)
+        PLATFORM_DEFINES += -DARM11 -marm -march=armv6j -mfpu=vfp -mfloat-abi=hard
+    else
+        PLATFORM_DEFINES += -DARM -marm -mcpu=cortex-a7 -mfpu=neon-vfpv4 -mfloat-abi=hard
+    endif
+    PLATFORM_DEFINES += -funsafe-math-optimizations -fomit-frame-pointer -fstrict-aliasing -ffast-math
+
+# --- Consoles & Others ---
+else ifeq ($(platform), ctr)
+    TARGET := $(TARGET_NAME)_libretro_$(platform).a
+    CC = $(DEVKITARM)/bin/arm-none-eabi-gcc$(EXE_EXT)
+    AR = $(DEVKITARM)/bin/arm-none-eabi-ar$(EXE_EXT)
+    PLATFORM_DEFINES := -DARM11 -D_3DS -march=armv6k -mtune=mpcore -mfloat-abi=hard -mword-relocations
+    STATIC_LINKING=1
+    EXTERNAL_ZLIB=1
+# Add additional blocks for psp1, vita, ps3, wii, etc. from your original file here as needed
+endif
+
+# --- Common Unix Toolchain ---
+# Use '=' instead of '?=' to ensure we don't inherit 'ld' from the environment
+CC      = gcc
+CXX     = g++
+# On Unix, we almost always want to link with the C++ driver for a C++ project
+LD      = $(CXX)
+OBJOUT  = -o
+LINKOUT = -o
+LIBM    := -lm
+WARNING_DEFINES := -Wno-write-strings
+
+# Ensure CXXFLAGS is appended, not just set
+CXXFLAGS += -std=c++17
+
+ifeq ($(DEBUG), 1)
+    CFLAGS   += -O0 -g -DDEBUG
+    CXXFLAGS += -O0 -g -DDEBUG
+else
+    CFLAGS   += -O2 -DNDEBUG
+    CXXFLAGS += -O2 -DNDEBUG
+endif
+
+ifeq ($(EXTERNAL_ZLIB), 1)
+    CFLAGS   += -DHAVE_EXTERNAL_ZLIB
+    CXXFLAGS += -DHAVE_EXTERNAL_ZLIB
+endif
+
+# If you specifically need to use the raw linker 'ld', 
+# you'd have to strip '-Wl,' but for Supermodel (C++), 
+# using g++ as the linker is the correct way.

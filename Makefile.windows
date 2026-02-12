@@ -1,0 +1,80 @@
+ifneq (,$(findstring msvc,$(platform)))
+    # --- MSVC Toolchain ---
+    CC  = cl.exe
+    CXX = cl.exe
+    OBJOUT  = -Fo
+    LINKOUT = -out:
+    PSS_STYLE := 2
+    
+    # ... [Insert your specific MSVC Registry and Path logic here] ...
+
+    ifeq ($(DEBUG), 1)
+        ifeq ($(STATIC_LINKING),1)
+            CFLAGS += -MTd
+            CXXFLAGS += -MTd
+        else
+            CFLAGS += -MDd
+            CXXFLAGS += -MDd
+        endif
+        CFLAGS += -Od -Zi -DDEBUG -D_DEBUG
+        CXXFLAGS += -Od -Zi -DDEBUG -D_DEBUG
+    else
+        ifeq ($(STATIC_LINKING),1)
+            CFLAGS += -MT
+            CXXFLAGS += -MT
+        else
+            CFLAGS += -MD
+            CXXFLAGS += -MD
+        endif
+        CFLAGS += -O2 -DNDEBUG
+        CXXFLAGS += -O2 -DNDEBUG
+    endif
+
+    ifeq ($(STATIC_LINKING),1)
+        LD = lib.exe
+    else
+        LD = link.exe
+    endif
+
+else
+    # --- MinGW / Generic Windows (Cross-Compiling from Ubuntu) ---
+    TARGET := $(TARGET_NAME)_libretro.dll
+    CC  = x86_64-w64-mingw32-gcc
+    CXX = x86_64-w64-mingw32-g++
+    LD  = $(CXX)
+    
+    fpic   := -fPIC 
+    SHARED := -shared -static-libgcc -static-libstdc++
+    
+    # 1. GLEW Logic
+    GLEW_DIR := $(CORE_DIR)/deps/windows/glew-2.2.0
+    INCFLAGS += -I$(GLEW_DIR)/include
+    LDFLAGS  += -L$(GLEW_DIR)/lib/Release/x64
+    
+    # 2. DEFINES
+    DEFINES  += -DGLEW_STATIC -D__LIBRETRO__
+    
+    # 3. LIBRARIES
+    # Added -lz (for unzip) and -lglu32 (for Legacy3D)
+    LIBS     += -lglew32s -lopengl32 -lglu32 -lgdi32 -lz
+
+    # 4. PLATFORM OSD
+    SOURCES_CXX += $(CORE_DIR)/Src/OSD/Windows/FileSystemPath.cpp
+
+    # Standard toolchain stuff
+    PSS_STYLE := 2
+    OBJOUT  = -o
+    LINKOUT = -o
+    LIBM    := 
+
+    ifeq ($(DEBUG), 1)
+        CFLAGS   += -O0 -g -DDEBUG
+        CXXFLAGS += -O0 -g -DDEBUG
+    else
+        CFLAGS   += -O2 -DNDEBUG
+        CXXFLAGS += -O2 -DNDEBUG
+    endif
+endif
+
+# Ensure C++17 for Supermodel
+CXXFLAGS += -std=c++17

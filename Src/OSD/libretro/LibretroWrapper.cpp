@@ -10,7 +10,6 @@
 #include <vector>
 #include <algorithm>
 #include <GL/glew.h>
-#include <SDL2/SDL_video.h>
 #include <libretro.h>
 #include "Inputs/Inputs.h"
 
@@ -376,8 +375,8 @@ int LibretroWrapper::SuperModelInit(const Game &game) {
   totalYRes = yRes = s_runtime_config["YResolution"].ValueAs<unsigned>();
   snprintf(baseTitleStr, sizeof(baseTitleStr), "Supermodel - %s", game.title.c_str());
 
-  int xpos = s_runtime_config["WindowXPosition"].ValueAsDefault<int>(SDL_WINDOWPOS_CENTERED);
-  int ypos = s_runtime_config["WindowYPosition"].ValueAsDefault<int>(SDL_WINDOWPOS_CENTERED);
+  // int xpos = s_runtime_config["WindowXPosition"].ValueAsDefault<int>(SDL_WINDOWPOS_CENTERED);
+  // int ypos = s_runtime_config["WindowYPosition"].ValueAsDefault<int>(SDL_WINDOWPOS_CENTERED);
   
   bool stretch = false;          
   bool fullscreen = false;
