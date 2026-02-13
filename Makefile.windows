@@ -1,3 +1,4 @@
+
 ifneq (,$(findstring msvc,$(platform)))
     # --- MSVC Toolchain ---
     CC  = cl.exe
@@ -5,8 +6,6 @@ ifneq (,$(findstring msvc,$(platform)))
     OBJOUT  = -Fo
     LINKOUT = -out:
     PSS_STYLE := 2
-    
-    # ... [Insert your specific MSVC Registry and Path logic here] ...
 
     ifeq ($(DEBUG), 1)
         ifeq ($(STATIC_LINKING),1)
@@ -37,31 +36,37 @@ ifneq (,$(findstring msvc,$(platform)))
     endif
 
 else
-    # --- MinGW / Generic Windows (Cross-Compiling from Ubuntu) ---
+    # --- MinGW / Generic Windows ---
     TARGET := $(TARGET_NAME)_libretro.dll
-    CC  = x86_64-w64-mingw32-gcc
-    CXX = x86_64-w64-mingw32-g++
+    
+    ifeq ($(shell uname -o 2>/dev/null),Msys)
+        # Native Windows MSYS2 build
+        CC  = gcc
+        CXX = g++
+        INCFLAGS += -I/mingw64/include
+        
+        # Force static pthread by adding -static flag
+        LDFLAGS  += -L/mingw64/lib -static
+        
+        # Static link non-Windows libraries
+        LIBS += -lglew32 -lz -lpthread -lopengl32 -lglu32 -lgdi32
+    else
+        # Cross-compiling from Ubuntu
+        CC  = x86_64-w64-mingw32-gcc
+        CXX = x86_64-w64-mingw32-g++
+        
+        GLEW_DIR := $(CORE_DIR)/deps/windows/glew-2.2.0
+        INCFLAGS += -I$(GLEW_DIR)/include
+        LDFLAGS  += -L$(GLEW_DIR)/lib/Release/x64
+        
+        LIBS += -lglew32s -lopengl32 -lglu32 -lgdi32 -lz
+    endif
+    
     LD  = $(CXX)
-    
     fpic   := -fPIC 
-    SHARED := -shared -static-libgcc -static-libstdc++
-    
-    # 1. GLEW Logic
-    GLEW_DIR := $(CORE_DIR)/deps/windows/glew-2.2.0
-    INCFLAGS += -I$(GLEW_DIR)/include
-    LDFLAGS  += -L$(GLEW_DIR)/lib/Release/x64
-    
-    # 2. DEFINES
+    SHARED := -shared -static-libgcc -static-libstdc++ -Wl,--export-all-symbols
     DEFINES  += -DGLEW_STATIC -D__LIBRETRO__
-    
-    # 3. LIBRARIES
-    # Added -lz (for unzip) and -lglu32 (for Legacy3D)
-    LIBS     += -lglew32s -lopengl32 -lglu32 -lgdi32 -lz
-
-    # 4. PLATFORM OSD
     SOURCES_CXX += $(CORE_DIR)/Src/OSD/Windows/FileSystemPath.cpp
-
-    # Standard toolchain stuff
     PSS_STYLE := 2
     OBJOUT  = -o
     LINKOUT = -o
@@ -76,5 +81,4 @@ else
     endif
 endif
 
-# Ensure C++17 for Supermodel
 CXXFLAGS += -std=c++17
