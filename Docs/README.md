@@ -45,7 +45,7 @@ To build the `.dll` directly on Windows, use the **MSYS2** environment with the 
 3.  **Install Dependencies**:
     Run the following command to install the compiler, make, and zlib:
     ```bash
-    pacman -S mingw-w64-x86_64-toolchain mingw-w64-x86_64-make mingw-w64-x86_64-zlib
+    pacman -S mingw-w64-x86_64-toolchain mingw-w64-x86_64-glew mingw-w64-x86_64-make mingw-w64-x86_64-zlib
     ```
 4.  **Compile**:
     Navigate to the source directory and run:
