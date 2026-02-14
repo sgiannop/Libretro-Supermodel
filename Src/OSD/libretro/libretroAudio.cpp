@@ -121,19 +121,8 @@ void PlayCallback(void* data, uint8_t* stream, int len)
     if (!enabled || !audio_batch_cb) return;
 
     UINT32 avail = GetAvailableAudioLen();
-
-    // 1. Calculate how much we WANT to read vs how much we HAVE
     UINT32 to_read = (avail < (UINT32)len) ? avail : (UINT32)len;
     
-    // 2. Handle the "Crackle" (Starvation)
-    // If we have less than 50% of the requested frame, the emulator is struggling.
-    if (avail < (UINT32)len)
-    {
-        // Instead of just playing silence (which crackles), 
-        // we can repeat the last few samples or "slow down" the drain.
-        // For now, let's use "Comfort Silence" which is a clean memset.
-    }
-
     INT8* src1 = nullptr;
     INT8* src2 = nullptr;
     UINT32 len1 = 0, len2 = 0;
@@ -153,23 +142,31 @@ void PlayCallback(void* data, uint8_t* stream, int len)
             len1 = to_read;
         }
 
-        // Push real data
         if (len1 > 0) audio_batch_cb((const int16_t*)src1, len1 / 4);
         if (len2 > 0) audio_batch_cb((const int16_t*)src2, len2 / 4);
 
-        // Update playPos
         playPos = (playPos + to_read) % audioBufferSize;
         if (playPos < to_read) writeWrapped = false;
     }
 
-    // 3. THE CRITICAL FIX FOR CRACKLING:
-    // If 'to_read' was less than 'len', we MUST fill the remainder of the 
-    // Libretro batch. If we don't, the frontend's audio sync will break.
     int missing_bytes = len - to_read;
     if (missing_bytes > 0)
     {
-        static int16_t silence_buf[4096] = {0}; 
-        audio_batch_cb(silence_buf, missing_bytes / 4);
+        // Get last two samples for interpolation
+        int16_t* lastSample = (int16_t*)(audioBuffer + ((playPos - 4 + audioBufferSize) % audioBufferSize));
+        int16_t* prevSample = (int16_t*)(audioBuffer + ((playPos - 8 + audioBufferSize) % audioBufferSize));
+        
+        static int16_t fade_buf[4096];
+        int samples_to_fill = missing_bytes / 4;
+        
+        // Linear fade to silence (less jarring than sudden repeat or silence)
+        for (int i = 0; i < samples_to_fill && i < 2048; i++) {
+            float fade = 1.0f - (float)i / (float)samples_to_fill;
+            fade_buf[i*2]   = (int16_t)(lastSample[0] * fade);  // Left
+            fade_buf[i*2+1] = (int16_t)(lastSample[1] * fade);  // Right
+        }
+        
+        audio_batch_cb(fade_buf, samples_to_fill);
     }
 
     if (callback) callback(callbackData);
@@ -366,7 +363,7 @@ Result OpenAudio(const Util::Config::Node& config)
 
     // Allocate enough for roughly one frame of audio (standard is ~735 samples for 60fps)
     // We'll be safe and allocate 4096 bytes.
-    audioBufferSize = 4096 * bytes_per_sample_host; 
+    audioBufferSize = 8192 * bytes_per_sample_host;  // Double the buffer
     audioBuffer = new(std::nothrow) INT8[audioBufferSize];
     
     if (audioBuffer == NULL) {

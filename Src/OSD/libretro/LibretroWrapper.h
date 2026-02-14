@@ -67,6 +67,8 @@ public:
     void InitGL();
 
 private:
+    uint64_t m_lastFrameTime = 0;
+    float m_currentFPS = 57.53f;
     static const char* s_outputNames[];
     struct retro_hw_render_callback hw_render;
     unsigned  xOffset, yOffset;                                         // offset of renderer output within OpenGL viewport
