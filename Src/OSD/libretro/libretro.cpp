@@ -196,32 +196,51 @@ void retro_run(void)
     unsigned target_h = wrapper.getYRes();
 
     // OPTIMIZATION: Only update screen size if it actually changed.
-    // This prevents re-calculating viewports/scissors every 16ms.
     if (target_w != last_width || target_h != last_height) {
         wrapper.UpdateScreenSize(target_w, target_h);
         last_width = target_w;
         last_height = target_h;
     }
 
+    // CRITICAL FOR WINDOWS: Reset GL state BEFORE Supermodel renders
+    // Windows drivers are strict and don't tolerate corrupted state
+    GLuint sm_fbo = wrapper.getSuperAA()->GetTargetID();
+    glBindFramebuffer(GL_FRAMEBUFFER, sm_fbo);
+    
+    // Reset all potentially problematic state
+    glDisable(GL_SCISSOR_TEST);
+    glDisable(GL_STENCIL_TEST);
+    glEnable(GL_DEPTH_TEST);       // Supermodel needs depth
+    glDepthFunc(GL_LESS);
+    glDepthMask(GL_TRUE);
+    glDisable(GL_BLEND);
+    glDisable(GL_CULL_FACE);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    
+    // Clear the framebuffer (critical for Windows)
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClearDepth(1.0);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+
     Game game = wrapper.getGame();
     wrapper.Inputs->Poll(&game, 0, 0, target_w, target_h);
     
-    // Step the Emulator
+    // Run Supermodel with clean GL state
     wrapper.Supermodel(game);
 
-    // Prepare for Blit
-    // We disable these to ensure the blit operation isn't affected by game state
+    // CRITICAL FOR WINDOWS: Ensure all rendering is complete
+    glFlush();
+
+    // Now prepare for blit to RetroArch's framebuffer
+    GLuint ra_fbo = wrapper.getHwRender().get_current_framebuffer();
+    
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, sm_fbo);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, ra_fbo);
+
+    // Disable tests that might interfere with blit
     glDisable(GL_SCISSOR_TEST);
     glDisable(GL_STENCIL_TEST);
     glDisable(GL_DEPTH_TEST);
-    
-    glViewport(0, 0, target_w, target_h);
-
-    GLuint ra_fbo = wrapper.getHwRender().get_current_framebuffer();
-    GLuint sm_fbo = wrapper.getSuperAA()->GetTargetID();
-
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, sm_fbo);
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, ra_fbo);
 
     // Blit from Internal Supermodel FBO to RetroArch's Front Buffer
     glBlitFramebuffer(
@@ -231,7 +250,7 @@ void retro_run(void)
         GL_LINEAR                       
     );
 
-    // Reset binding
+    // Reset to RetroArch's framebuffer
     glBindFramebuffer(GL_FRAMEBUFFER, ra_fbo); 
     
     // Signal frame is ready
