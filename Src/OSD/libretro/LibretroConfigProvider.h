@@ -1,7 +1,8 @@
 #pragma once
 #include <Inputs/InputSystem.h>
 #include "Util/NewConfig.h"
-
+#include "LibretroWrapper.h"
+#include <algorithm>
 namespace LibretroConfigProvider {
      inline Util::Config::Node DefaultConfig(const std::string& gameXmlPath)
     {

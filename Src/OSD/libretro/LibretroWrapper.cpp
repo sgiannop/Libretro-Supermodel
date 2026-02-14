@@ -7,7 +7,6 @@
 #include <string>
 #include <memory>
 #include <vector>
-#include <algorithm>
 #include <GL/glew.h>
 #include <libretro.h>
 #include "Inputs/Inputs.h"
