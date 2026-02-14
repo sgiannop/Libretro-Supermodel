@@ -15,11 +15,16 @@
 #include "../Src/Inputs/Inputs.h"
 #include "LibretroConfigProvider.h"
 #include "LibretroWrapper.h"
-#include <filesystem>
+
 namespace fs = std::filesystem;
 
-
-auto config = LibretroConfigProvider::DefaultConfig(LibretroWrapper::GetGameXMLPath());
+// [FIX] Removed global 'config' variable to prevent Static Initialization Order crash.
+// Instead, we use a static getter to initialize it safely on first use.
+static Util::Config::Node& GetConfig() {
+    // This will only run once, the first time this function is called.
+    static Util::Config::Node s_config = LibretroConfigProvider::DefaultConfig(LibretroWrapper::GetGameXMLPath());
+    return s_config;
+}
 
 // SDL stubs to keep the existing function signatures as similar as possible
 
@@ -357,11 +362,17 @@ static void GUI(const ImGuiIO& io, Util::Config::Node& config, const std::map<st
 
 std::vector<std::string> RunGUI(const std::string& configPath, Util::Config::Node& config)
 {
-    IMGUI_CHECKVERSION();
-    ImGui::CreateContext();
-    ImGui_ImplOpenGL3_Init("#version 410");
-    ImGui::GetIO().IniFilename = nullptr;
-    ImGui::StyleColorsDark();
+    // [FIX] ImGui Context should only be created once
+    static bool s_imguiInitialized = false;
+    
+    if (!s_imguiInitialized) {
+        IMGUI_CHECKVERSION();
+        ImGui::CreateContext();
+        ImGui_ImplOpenGL3_Init("#version 410");
+        ImGui::GetIO().IniFilename = nullptr;
+        ImGui::StyleColorsDark();
+        s_imguiInitialized = true;
+    }
 
     // 1. Determine the XML filename
     std::string xmlName = "Games.xml";
@@ -389,7 +400,9 @@ std::vector<std::string> RunGUI(const std::string& configPath, Util::Config::Nod
     KeyBindState kb{};
     std::shared_ptr<CInputs> inputs = nullptr;
 
-    // NOTE: In Libretro, you don't 'loop' here. This function should initialize 
-    // and return, or call GUI once per retro_run. For now, we return empty to compile.
+    // In Libretro, you cannot run a 'while' loop here because it blocks the frontend.
+    // This function should probably be split into 'Init' and 'Draw' phases.
+    // For now, returning empty to satisfy the compiler and avoid blocking.
+    
     return {};
 }
