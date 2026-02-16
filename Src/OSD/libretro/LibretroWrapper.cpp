@@ -496,7 +496,10 @@ QuitError:
 void LibretroWrapper::ShutDownSupermodel()
 {
   Model3->PauseThreads();
-  SaveNVRAM(Model3);
+  
+  // NOTE: NVRAM is now saved by retro_unload_game() to the libretro buffer
+  // Don't call SaveNVRAM() here - it would save to a file, which we don't want
+  
   CloseAudio();
 
   delete Render2D;

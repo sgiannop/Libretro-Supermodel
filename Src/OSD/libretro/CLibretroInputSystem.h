@@ -39,9 +39,10 @@ public:
     std::shared_ptr<CInputSource> ParseSource(const char* mapping, bool isAxis);
 
 private:
-    int16_t m_joyState[2][NUM_JOY_BUTTONS];
+    int16_t m_joyButtons[2][NUM_JOY_BUTTONS];
     int16_t m_joyAxes[2][NUM_JOY_AXES];
     uint8_t m_joyPOV[2][4]; // Up, Right, Down, Left]
+    bool m_keyState[512];  // Add this for keyboard
 
 
 };

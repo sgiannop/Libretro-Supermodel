@@ -2,76 +2,114 @@
 #include <libretro.h>
 #include "CLibretroInputSystem.h"
 #include <Inputs/Input.h>
+
 extern retro_input_poll_t input_poll_cb;
 extern retro_input_state_t input_state_cb;
 
-CLibretroInputSystem::CLibretroInputSystem() : CInputSystem("Libretro")
+CLibretroInputSystem::CLibretroInputSystem() 
+    : CInputSystem("Libretro")
 {
-    std::memset(m_joyState, 0, sizeof(m_joyState));
-    std::memset(m_joyAxes, 0, sizeof(m_joyAxes));
-    //m_numJoys = 2; 
+    std::memset(m_joyButtons, 0, sizeof(m_joyButtons));
+    std::memset(m_joyAxes,    0, sizeof(m_joyAxes));
+    std::memset(m_joyPOV,     0, sizeof(m_joyPOV));
+    std::memset(m_keyState,   0, sizeof(m_keyState));
 }
-
 
 CLibretroInputSystem::~CLibretroInputSystem() {}
 bool CLibretroInputSystem::Poll()
 {
-    if (!input_poll_cb || !input_state_cb) return false;
+    if (!input_poll_cb || !input_state_cb)
+        return false;
+
     input_poll_cb();
+
+    // ----- Keyboard -----
+    for (int k = 0; k < 512; k++)
+        m_keyState[k] = input_state_cb(0, RETRO_DEVICE_KEYBOARD, 0, k);
 
     const int16_t THRESHOLD = 8000;
 
     for (int joy = 0; joy < 2; joy++)
     {
-        // 1. Read Analog Stick Positions
-        int16_t x = input_state_cb(joy, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_X);
-        int16_t y = input_state_cb(joy, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_Y);
-        
+        // ----- Initialize all buttons to 0 first -----
+        for (int b = 0; b < NUM_JOY_BUTTONS; b++)
+        {
+            m_joyButtons[joy][b] = 0;
+        }
+
+        // ----- Axes -----
+        int16_t x = input_state_cb(joy, RETRO_DEVICE_ANALOG,
+                                   RETRO_DEVICE_INDEX_ANALOG_LEFT,
+                                   RETRO_DEVICE_ID_ANALOG_X);
+
+        int16_t y = input_state_cb(joy, RETRO_DEVICE_ANALOG,
+                                   RETRO_DEVICE_INDEX_ANALOG_LEFT,
+                                   RETRO_DEVICE_ID_ANALOG_Y);
+
         m_joyAxes[joy][0] = x;
         m_joyAxes[joy][1] = y;
 
-        // 2. Read Digital D-Pad State
+        // ----- D-Pad -----
         bool d_up    = input_state_cb(joy, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_UP);
         bool d_down  = input_state_cb(joy, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_DOWN);
         bool d_left  = input_state_cb(joy, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_LEFT);
         bool d_right = input_state_cb(joy, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_RIGHT);
 
-        // 3. Combine them into your m_joyState (Indices 10-13)
-        // This makes the D-Pad and Stick interchangeable
-        m_joyState[joy][10] = (y < -THRESHOLD) || d_up;    // Up
-        m_joyState[joy][11] = (y >  THRESHOLD) || d_down;  // Down
-        m_joyState[joy][12] = (x < -THRESHOLD) || d_left;  // Left
-        m_joyState[joy][13] = (x >  THRESHOLD) || d_right; // Right
+        m_joyPOV[joy][0] = (y < -THRESHOLD) || d_up;    // Up
+        m_joyPOV[joy][1] = (x >  THRESHOLD) || d_right; // Right
+        m_joyPOV[joy][2] = (y >  THRESHOLD) || d_down;  // Down
+        m_joyPOV[joy][3] = (x < -THRESHOLD) || d_left;  // Left
 
-        // 4. Buttons (B, A, Y, X, etc.)
-        static const int libretro_buttons[] = {
-            RETRO_DEVICE_ID_JOYPAD_B, RETRO_DEVICE_ID_JOYPAD_A, RETRO_DEVICE_ID_JOYPAD_Y,
-            RETRO_DEVICE_ID_JOYPAD_X, RETRO_DEVICE_ID_JOYPAD_L, RETRO_DEVICE_ID_JOYPAD_R,
-            RETRO_DEVICE_ID_JOYPAD_L2, RETRO_DEVICE_ID_JOYPAD_R2,
-            RETRO_DEVICE_ID_JOYPAD_SELECT, RETRO_DEVICE_ID_JOYPAD_START
+        // ----- Buttons -----
+        // Standard game buttons (0-3: B, A, Y, X)
+        static const int game_buttons[4] =
+        {
+            RETRO_DEVICE_ID_JOYPAD_B,      // Button 0 (BUTTON1)
+            RETRO_DEVICE_ID_JOYPAD_A,      // Button 1 (BUTTON2)
+            RETRO_DEVICE_ID_JOYPAD_Y,      // Button 2 (BUTTON3)
+            RETRO_DEVICE_ID_JOYPAD_X,      // Button 3 (BUTTON4)
         };
 
-        for (int b = 0; b < 10; b++) {
-            m_joyState[joy][b] = input_state_cb(joy, RETRO_DEVICE_JOYPAD, 0, libretro_buttons[b]);
+        for (int b = 0; b < 4; b++)
+        {
+            m_joyButtons[joy][b] =
+                input_state_cb(joy, RETRO_DEVICE_JOYPAD, 0, game_buttons[b]);
         }
 
-        if (input_state_cb(joy, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_UP)) {
-            printf("DEBUG: LIBRETRO REPORTS UP PRESSED FOR JOY %d\n", joy);
-        }
-        if (input_state_cb(joy, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_DOWN)) {
-            printf("DEBUG: LIBRETRO REPORTS DOWN PRESSED FOR JOY %d\n", joy);
-        }
+        // Gear shift / shoulder buttons (4-7: L, R, L2, R2)
+        m_joyButtons[joy][4] = input_state_cb(joy, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L);
+        m_joyButtons[joy][5] = input_state_cb(joy, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R);
+        m_joyButtons[joy][6] = input_state_cb(joy, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L2);
+        m_joyButtons[joy][7] = input_state_cb(joy, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R2);
+
+        // Start/Select buttons (8-9)
+        m_joyButtons[joy][8] = input_state_cb(joy, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_SELECT);
+        m_joyButtons[joy][9] = input_state_cb(joy, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START);
+        
+        // Map D-Pad to buttons 10-13 (BUTTON11-14)
+        m_joyButtons[joy][10] = d_up;
+        m_joyButtons[joy][11] = d_down;
+        m_joyButtons[joy][12] = d_left;
+        m_joyButtons[joy][13] = d_right;
+
+        // Service/Test buttons (20-23) - BUTTON21-24 in Supermodel numbering
+        m_joyButtons[joy][20] = input_state_cb(joy, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L);
+        m_joyButtons[joy][21] = input_state_cb(joy, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R);
+        m_joyButtons[joy][22] = input_state_cb(joy, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L2);
+        m_joyButtons[joy][23] = input_state_cb(joy, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R2);
     }
 
-    
     return true;
 }
+
 bool CLibretroInputSystem::IsJoyButPressed(int joyNum, int butNum) const
 {
     if (joyNum < 0 || joyNum >= 2) return false;
-    if (butNum < 0 || butNum >= 14) return false;  // <- allow D-PAD
-    return m_joyState[joyNum][butNum] != 0;
+    if (butNum < 0 || butNum >= NUM_JOY_BUTTONS) return false;
+
+    return m_joyButtons[joyNum][butNum] != 0;
 }
+
 
 int CLibretroInputSystem::GetJoyAxisValue(int joyNum, int axisNum) const
 {
@@ -83,55 +121,64 @@ int CLibretroInputSystem::GetJoyAxisValue(int joyNum, int axisNum) const
 bool CLibretroInputSystem::IsJoyPOVInDir(int joyNum, int povNum, int povDir) const
 {
     if (joyNum < 0 || joyNum >= 2) return false;
+    if (povDir < 0 || povDir > 3) return false;
 
-    // povDir mapping for Supermodel: 0=Up, 1=Right, 2=Down, 3=Left
-    switch (povDir)
-    {
-        case 0: return m_joyState[joyNum][10] != 0; // UP
-        case 1: return m_joyState[joyNum][13] != 0; // RIGHT
-        case 2: return m_joyState[joyNum][11] != 0; // DOWN
-        case 3: return m_joyState[joyNum][12] != 0; // LEFT
-        default: return false;
-    }
+    return m_joyPOV[joyNum][povDir] != 0;
 }
+
+
 int CLibretroInputSystem::GetKeyIndex(const char *keyName)
 {
     if (!keyName) return -1;
-    if (std::strcmp(keyName, "KEY_1") == 0) return 30;
-    if (std::strcmp(keyName, "KEY_3") == 0) return 32;
-    if (std::strcmp(keyName, "KEY_5") == 0) return 34;
-    if (std::strcmp(keyName, "KEY_UP") == 0) return 72;
-    if (std::strcmp(keyName, "KEY_DOWN") == 0) return 80;
-    if (std::strcmp(keyName, "KEY_LEFT") == 0) return 75;
-    if (std::strcmp(keyName, "KEY_RIGHT") == 0) return 77;
+    
+    // Map Supermodel KEY_* to libretro RETROK_* codes
+    if (std::strcmp(keyName, "KEY_1") == 0) return RETROK_1;
+    if (std::strcmp(keyName, "KEY_2") == 0) return RETROK_2;
+    if (std::strcmp(keyName, "KEY_3") == 0) return RETROK_3;
+    if (std::strcmp(keyName, "KEY_4") == 0) return RETROK_4;
+    if (std::strcmp(keyName, "KEY_5") == 0) return RETROK_5;  // Service A
+    if (std::strcmp(keyName, "KEY_6") == 0) return RETROK_6;  // Test A
+    if (std::strcmp(keyName, "KEY_7") == 0) return RETROK_7;  // Service B
+    if (std::strcmp(keyName, "KEY_8") == 0) return RETROK_8;  // Test B
+    if (std::strcmp(keyName, "KEY_UP") == 0) return RETROK_UP;
+    if (std::strcmp(keyName, "KEY_DOWN") == 0) return RETROK_DOWN;
+    if (std::strcmp(keyName, "KEY_LEFT") == 0) return RETROK_LEFT;
+    if (std::strcmp(keyName, "KEY_RIGHT") == 0) return RETROK_RIGHT;
+    if (std::strcmp(keyName, "KEY_A") == 0) return RETROK_a;
+    if (std::strcmp(keyName, "KEY_S") == 0) return RETROK_s;
+    if (std::strcmp(keyName, "KEY_D") == 0) return RETROK_d;
+    if (std::strcmp(keyName, "KEY_F") == 0) return RETROK_f;
+    if (std::strcmp(keyName, "KEY_Q") == 0) return RETROK_q;
+    if (std::strcmp(keyName, "KEY_W") == 0) return RETROK_w;
+    if (std::strcmp(keyName, "KEY_E") == 0) return RETROK_e;
+    if (std::strcmp(keyName, "KEY_R") == 0) return RETROK_r;
+    
     return -1;
 }
 
 bool CLibretroInputSystem::IsKeyPressed(int kbdNum, int keyIndex) const
 {
-    switch(keyIndex) {
-        case 30: return m_joyState[0][9] != 0;  // Start
-        case 32: return m_joyState[0][8] != 0;  // Select
-        case 72: return m_joyState[0][10] != 0; // Up
-        case 80: return m_joyState[0][11] != 0; // Down
-        case 75: return m_joyState[0][12] != 0; // Left
-        case 77: return m_joyState[0][13] != 0; // Right
-    }
+    if (kbdNum != 0) return false;
+
+    if (keyIndex >= 0 && keyIndex < 512)
+        return m_keyState[keyIndex];
+
     return false;
 }
+
 
 bool CLibretroInputSystem::IsMouseButPressed(int mseNum, int butNum) const { return false; }
 int CLibretroInputSystem::GetMouseAxisValue(int mseNum, int axisNum) const { return 0; }
 void CLibretroInputSystem::SetMouseVisibility(bool visible) {}
 const MouseDetails *CLibretroInputSystem::GetMouseDetails(int mseNum) { return nullptr; }
 bool CLibretroInputSystem::ProcessForceFeedbackCmd(int joyNum, int axisNum, ForceFeedbackCmd ffCmd) { return false; }
+
 const KeyDetails *CLibretroInputSystem::GetKeyDetails(int kbdNum)
 {
     static KeyDetails d{};
     std::strncpy(d.name, "Libretro Keyboard", MAX_NAME_LENGTH);
     return &d;
 }
-// In your constructor or InitializeSystem:
 
 const JoyDetails *CLibretroInputSystem::GetJoyDetails(int joyNum)
 {
@@ -142,22 +189,17 @@ const JoyDetails *CLibretroInputSystem::GetJoyDetails(int joyNum)
         std::memset(&d, 0, sizeof(d));
         std::strncpy(d.name, "Libretro Joypad", MAX_NAME_LENGTH);
         
-        // This MUST be > 0 before CInput::CreateSource() is called
-        d.numButtons = 14; 
+        d.numButtons = 32; 
         d.numAxes = 2;
         d.numPOVs = 1; 
 
-        // Supermodel checks these flags for Axis mappings
         d.hasAxis[0] = true; // X
         d.hasAxis[1] = true; // Y
         initialized = true;
     }
     return &d;
 }
+
 bool CLibretroInputSystem::InitializeSystem() { return true; }
 int CLibretroInputSystem::GetMouseWheelDir(int mseNum) const { return 0; }
-const char *CLibretroInputSystem::GetKeyName(int keyIndex)
-{
-    return "NONE";
-}
-
+const char *CLibretroInputSystem::GetKeyName(int keyIndex) { return "NONE"; }

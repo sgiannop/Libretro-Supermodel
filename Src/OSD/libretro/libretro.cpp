@@ -35,7 +35,8 @@ char retro_base_directory[4096];
 // Optimization: Cache last known resolution to avoid redundant updates
 static unsigned last_width = 0;
 static unsigned last_height = 0;
-
+#define NVRAM_BUFFER_SIZE (0x20000 + 2048) 
+static uint8_t g_nvram_buffer[NVRAM_BUFFER_SIZE];
 // Optimization: Cache save state size
 static size_t g_cached_serialize_size = 0;
 
@@ -150,14 +151,14 @@ void context_destroy(void)
 }
 
 // --- Game Loading ---
-
 bool retro_load_game(const struct retro_game_info *info)
 {
    hw_render.context_type = RETRO_HW_CONTEXT_OPENGL; 
    hw_render.context_reset = context_reset;
    hw_render.context_destroy = context_destroy;
    hw_render.depth = true;
-   hw_render.stencil = true; 
+   hw_render.stencil = true;
+   hw_render.bottom_left_origin = true;             // GL standard
 
    if (!environ_cb(RETRO_ENVIRONMENT_SET_HW_RENDER, &hw_render)) {
        log_cb(RETRO_LOG_ERROR, "[Supermodel] HW Render Context negotiation failed.\n");
@@ -174,22 +175,59 @@ bool retro_load_game(const struct retro_game_info *info)
    log_cb(RETRO_LOG_INFO, "[Supermodel] Loading ROM: %s\n", info->path);
       
    int emulation = wrapper.Emulate(info->path);
-   if (emulation != 0) return false; // Basic error checking
+   if (emulation != 0) return false;
 
    wrapper.SuperModelInit(wrapper.getGame());
 
+   // NVRAM will be loaded on the first call to retro_run()
+   // (RetroArch loads .srm AFTER retro_load_game returns)
+
    return true;
 }
-
 void retro_unload_game(void)
 {
+   // Save NVRAM to buffer before shutdown (RetroArch will write it to .srm)
+   if (wrapper.getEmulator() != nullptr)
+   {
+       log_cb(RETRO_LOG_INFO, "[Supermodel] Saving NVRAM to .srm file\n");
+       
+       CBlockFileMemory memFile(g_nvram_buffer, NVRAM_BUFFER_SIZE);
+       wrapper.getEmulator()->SaveNVRAM(&memFile);
+       memFile.Finish();
+   }
+   
    wrapper.ShutDownSupermodel();
 }
 
 // --- Main Loop ---
-
 void retro_run(void)
 {
+    // NVRAM Loading: Do this on first frame, AFTER RetroArch has loaded .srm
+    static bool first_run = true;
+    if (first_run)
+    {
+        first_run = false;
+        
+        log_cb(RETRO_LOG_INFO, "[Supermodel] First frame - checking NVRAM buffer...\n");
+        
+        // Check if buffer has valid block file data (first 16 bytes shouldn't all be zero)
+        bool has_nvram = false;
+        for (int i = 0; i < 16 && !has_nvram; i++)
+            has_nvram = (g_nvram_buffer[i] != 0);
+        
+        if (has_nvram)
+        {
+            log_cb(RETRO_LOG_INFO, "[Supermodel] Loading NVRAM from .srm file\n");
+            
+            CBlockFileMemory memFile(g_nvram_buffer, NVRAM_BUFFER_SIZE);
+            wrapper.getEmulator()->LoadNVRAM(&memFile);
+        }
+        else
+        {
+            log_cb(RETRO_LOG_INFO, "[Supermodel] No NVRAM data found, using defaults\n");
+        }
+    }
+
     if (input_poll_cb) input_poll_cb();
 
     unsigned target_w = wrapper.getXRes();
@@ -244,7 +282,7 @@ void retro_run(void)
 
     // Blit from Internal Supermodel FBO to RetroArch's Front Buffer
     glBlitFramebuffer(
-        0, target_h, target_w, 0,       // Source (Vertical Flip)
+        0, 0, target_w, target_h,       // Source (Standard Orientation: 0 to H)
         0, 0, target_w, target_h,       // Destination
         GL_COLOR_BUFFER_BIT,
         GL_LINEAR                       
@@ -290,19 +328,33 @@ bool retro_unserialize(const void* data, size_t size)
 }
 
 // --- Input Descriptors & Callbacks ---
-
 void set_input_descriptors(retro_environment_t environ_cb) {
    struct retro_input_descriptor desc[] = {
+      // Player 1 Basic Controls
       { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_LEFT,   "D-Pad Left" },
       { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_UP,     "D-Pad Up" },
       { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_RIGHT,  "D-Pad Right" },
       { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_DOWN,   "D-Pad Down" },
       { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_B,      "Punch / Accelerate" },
       { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_A,      "Kick / Brake" },
+      { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_Y,      "View Change" },
+      { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_X,      "Shift Up" },
+      
+      // Game Controls
       { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START,  "Start" },
-      { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_SELECT, "Coin / Service" },
+      { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_SELECT, "Coin" },
+      
+      // Arcade Cabinet Controls (Critical for Test Menu!)
+      { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L,      "Service (Test Menu)" },
+      { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R,      "Test Button" },
+      { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L2,     "Service 2" },
+      { 0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R2,     "Test Button 2" },
+      
+      // Analog Controls
       { 0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_X, "Steering / Move X" },
-      { 0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_Y, "Move Y" },
+      { 0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_Y, "Accelerator / Move Y" },
+      { 0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_X, "Brake" },
+      
       { 0 },
    };
    environ_cb(RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS, desc);
@@ -355,6 +407,24 @@ void retro_reset(void) {}
 bool retro_load_game_special(unsigned, const struct retro_game_info *, size_t) { return false; }
 void retro_cheat_reset(void) {}
 void retro_cheat_set(unsigned, bool, const char *) {}
-size_t retro_get_memory_size(unsigned id) { return 0; }
-void* retro_get_memory_data(unsigned id) { return nullptr; }
+void* retro_get_memory_data(unsigned id)
+{
+    if (id == RETRO_MEMORY_SAVE_RAM)
+    {
+        // Serialize NVRAM to buffer on every access
+        if (wrapper.getEmulator() != nullptr)
+        {
+            CBlockFileMemory memFile(g_nvram_buffer, NVRAM_BUFFER_SIZE);
+            wrapper.getEmulator()->SaveNVRAM(&memFile);
+            memFile.Finish();
+        }
+        return g_nvram_buffer;
+    }
+    return nullptr;
+}
+
+size_t retro_get_memory_size(unsigned id)
+{
+    return (id == RETRO_MEMORY_SAVE_RAM) ? NVRAM_BUFFER_SIZE : 0;
+}
 unsigned retro_get_region(void) { return RETRO_REGION_NTSC; }
