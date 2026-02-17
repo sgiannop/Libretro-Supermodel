@@ -55,6 +55,7 @@ bool CLibretroInputSystem::Poll()
         bool d_left  = input_state_cb(joy, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_LEFT);
         bool d_right = input_state_cb(joy, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_RIGHT);
 
+        // Store in POV array (for IsJoyPOVInDir)
         m_joyPOV[joy][0] = (y < -THRESHOLD) || d_up;    // Up
         m_joyPOV[joy][1] = (x >  THRESHOLD) || d_right; // Right
         m_joyPOV[joy][2] = (y >  THRESHOLD) || d_down;  // Down
@@ -86,11 +87,12 @@ bool CLibretroInputSystem::Poll()
         m_joyButtons[joy][8] = input_state_cb(joy, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_SELECT);
         m_joyButtons[joy][9] = input_state_cb(joy, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START);
         
-        // Map D-Pad to buttons 10-13 (BUTTON11-14)
-        m_joyButtons[joy][10] = d_up;
-        m_joyButtons[joy][11] = d_down;
-        m_joyButtons[joy][12] = d_left;
-        m_joyButtons[joy][13] = d_right;
+        // **FIX: Map D-Pad AND Analog Stick to buttons 10-13**
+        // This makes both the analog stick and D-Pad work for movement!
+        m_joyButtons[joy][10] = (y < -THRESHOLD) || d_up;      // Up - ANALOG + DIGITAL
+        m_joyButtons[joy][11] = (y >  THRESHOLD) || d_down;    // Down - ANALOG + DIGITAL
+        m_joyButtons[joy][12] = (x < -THRESHOLD) || d_left;    // Left - ANALOG + DIGITAL
+        m_joyButtons[joy][13] = (x >  THRESHOLD) || d_right;   // Right - ANALOG + DIGITAL
 
         // Service/Test buttons (20-23) - BUTTON21-24 in Supermodel numbering
         m_joyButtons[joy][20] = input_state_cb(joy, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L);

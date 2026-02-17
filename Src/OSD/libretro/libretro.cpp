@@ -15,6 +15,7 @@
 #include "LibretroWrapper.h"
 #include "Pkgs/GL/glew.h"
 #include "../../Graphics/SuperAA.h"
+#include "libretro_core_options.h"
 
 // --- Global Variables ---
 retro_video_refresh_t video_cb = NULL;
@@ -165,6 +166,7 @@ bool retro_load_game(const struct retro_game_info *info)
        return false;
    }
    
+   update_core_options();
    wrapper.InitializePaths(retro_base_directory);
    wrapper.setHwRender(hw_render); 
 
@@ -198,10 +200,20 @@ void retro_unload_game(void)
    
    wrapper.ShutDownSupermodel();
 }
-
-// --- Main Loop ---
 void retro_run(void)
 {
+   // Check if options were changed
+   bool options_updated = false;
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE, &options_updated) && options_updated)
+   {
+       update_core_options();
+       log_cb(RETRO_LOG_INFO, "[Supermodel] Options changed - applying new settings\n");
+       
+       // Force screen size recalculation on next frame
+       last_width = 0;
+       last_height = 0;
+   }
+
     // NVRAM Loading: Do this on first frame, AFTER RetroArch has loaded .srm
     static bool first_run = true;
     if (first_run)
@@ -364,15 +376,25 @@ void retro_set_environment(retro_environment_t cb)
 {
    environ_cb = cb;
 
+   // 1. VFS Interface
    struct retro_vfs_interface_info vfs_iface_info;
    vfs_iface_info.required_interface_version = 2;
    vfs_iface_info.iface                      = NULL;
    if (environ_cb(RETRO_ENVIRONMENT_GET_VFS_INTERFACE, &vfs_iface_info))
       filestream_vfs_init(&vfs_iface_info);
 
+   // 2. ✅ REGISTER CORE OPTIONS (This was missing!)
+   // Ensure option_cats and option_defs are defined ABOVE this function
+   struct retro_core_options_v2 options_v2;
+   options_v2.categories = option_cats;
+   options_v2.definitions = option_defs;
+   environ_cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2, &options_v2);
+
+   // 3. Variable Update Check
    bool dummy = false;
    environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE, &dummy);
    
+   // 4. Input Descriptors
    set_input_descriptors(cb); 
 }
 
