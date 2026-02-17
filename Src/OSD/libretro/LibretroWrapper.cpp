@@ -95,22 +95,22 @@ static void GLAPIENTRY DebugCallback(GLenum source, GLenum type, GLuint id, GLen
 
 void LibretroWrapper::UpdateScreenSize(unsigned newWidth, unsigned newHeight)
 {
-    // OPTIMIZATION: If dimensions match and AA is initialized, skip costly re-init
+    // If dimensions match and renderers are initialized, skip costly re-init
     if (newWidth == xRes && newHeight == yRes && superAA != nullptr)
         return;
 
     xRes = totalXRes = newWidth;
     yRes = totalYRes = newHeight;
+    xOffset = 0;
+    yOffset = 0;
 
-    // These calls tell Supermodel's Renderers to re-calculate their viewports
-    if (superAA) superAA->Init(xRes, yRes);
-    if (Render2D) Render2D->Init(0, 0, xRes*aaValue, yRes*aaValue, totalXRes*aaValue, totalYRes*aaValue, superAA->GetTargetID(), upscaleMode);
-    if (Render3D) Render3D->Init(0, 0, xRes*aaValue, yRes*aaValue, totalXRes*aaValue, totalYRes*aaValue, superAA->GetTargetID());
+    if (Model3)
+        Model3->PauseThreads();
 
-    // CRITICAL: Force OpenGL to use the full area and stop clipping
-    glViewport(0, 0, newWidth, newHeight);
-    glScissor(0, 0, newWidth, newHeight);
-    glDisable(GL_SCISSOR_TEST); 
+    InitRenderers();
+
+    if (Model3)
+        Model3->ResumeThreads();
 }
 
 void LibretroWrapper::SaveFrameBuffer(const std::string& file)
@@ -255,16 +255,59 @@ void EndFrameVideo()
 /******************************************************************************
  Frame Timing & Init
 ******************************************************************************/
-
 bool LibretroWrapper::InitRenderers()
 {
-    // Delete old GL objects if they exist
     delete Render2D; Render2D = nullptr;
     delete Render3D; Render3D = nullptr;
     delete superAA;  superAA  = nullptr;
 
+    // Destroy previous libretro-managed FBO if any
+    if (m_libretrFBO) {
+        glDeleteFramebuffers(1,  &m_libretrFBO);   m_libretrFBO   = 0;
+        glDeleteTextures(1,      &m_libretrTex);    m_libretrTex   = 0;
+        glDeleteRenderbuffers(1, &m_libretrDepth);  m_libretrDepth = 0;
+    }
+
     superAA = new SuperAA(aaValue, CRTcolors);
     superAA->Init(totalXRes, totalYRes);
+
+    GLuint renderTarget = superAA->GetTargetID();
+
+    // SuperAA skips FBO creation when aa==1 and no CRT filter.
+    // In that case we must provide our own FBO; otherwise glBlitFramebuffer
+    // reads from FBO-0 (the raw window backbuffer), which is invalid in libretro.
+    if (renderTarget == 0)
+    {
+        glGenFramebuffers(1, &m_libretrFBO);
+        glBindFramebuffer(GL_FRAMEBUFFER, m_libretrFBO);
+
+        glGenTextures(1, &m_libretrTex);
+        glBindTexture(GL_TEXTURE_2D, m_libretrTex);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8,
+                     totalXRes, totalYRes,
+                     0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                               GL_TEXTURE_2D, m_libretrTex, 0);
+
+        glGenRenderbuffers(1, &m_libretrDepth);
+        glBindRenderbuffer(GL_RENDERBUFFER, m_libretrDepth);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8,
+                              totalXRes, totalYRes);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT,
+                                  GL_RENDERBUFFER, m_libretrDepth);
+
+        GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+        if (status != GL_FRAMEBUFFER_COMPLETE)
+            fprintf(stderr, "[Supermodel] Libretro FBO incomplete: 0x%X\n", status);
+        else
+            fprintf(stderr, "[Supermodel] Libretro FBO created: %ux%u (id=%u)\n",
+                    totalXRes, totalYRes, m_libretrFBO);
+
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        renderTarget = m_libretrFBO;
+    }
 
     Render2D = new CRender2D(s_runtime_config);
     Render3D =
@@ -276,14 +319,14 @@ bool LibretroWrapper::InitRenderers()
             xOffset*aaValue, yOffset*aaValue,
             xRes*aaValue, yRes*aaValue,
             totalXRes*aaValue, totalYRes*aaValue,
-            superAA->GetTargetID(), upscaleMode))
+            renderTarget, upscaleMode))   // ← use renderTarget, not superAA->GetTargetID()
         return false;
 
     if (Result::OKAY != Render3D->Init(
             xOffset*aaValue, yOffset*aaValue,
             xRes*aaValue, yRes*aaValue,
             totalXRes*aaValue, totalYRes*aaValue,
-            superAA->GetTargetID()))
+            renderTarget))               // ← same here
         return false;
 
     Model3->AttachRenderers(Render2D, Render3D, superAA);
@@ -660,4 +703,10 @@ void LibretroWrapper::InitGL()
     glDepthFunc(GL_LESS);
 
     InitRenderers();
+}
+
+GLuint LibretroWrapper::getSuperModelFBO() const 
+{
+    GLuint saaFBO = superAA ? superAA->GetTargetID() : 0;
+    return (saaFBO != 0) ? saaFBO : m_libretrFBO;
 }

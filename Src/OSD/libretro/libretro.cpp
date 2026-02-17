@@ -118,8 +118,10 @@ void retro_get_system_av_info(struct retro_system_av_info *info)
    // Model 3 Native Resolution
    info->geometry.base_width   = 496;
    info->geometry.base_height  = 384;
-   info->geometry.max_width    = 496;
-   info->geometry.max_height   = 384;
+   
+   // CRITICAL FIX: Set max to support 4x upscaling
+   info->geometry.max_width    = 496 * 4;  // 1984
+   info->geometry.max_height   = 384 * 4;  // 1536
    info->geometry.aspect_ratio = 4.0f / 3.0f;
 
    // Exact Hardware Timing
@@ -206,105 +208,143 @@ void retro_run(void)
    bool options_updated = false;
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE, &options_updated) && options_updated)
    {
-       update_core_options();
-       log_cb(RETRO_LOG_INFO, "[Supermodel] Options changed - applying new settings\n");
-       
-       // Force screen size recalculation on next frame
-       last_width = 0;
-       last_height = 0;
+      int  old_multiplier  = g_options.resolution_multiplier;
+      bool old_widescreen  = g_options.widescreen;
+
+      update_core_options();
+
+      // Resolution: let the existing UpdateScreenSize path handle it
+      if (g_options.resolution_multiplier != old_multiplier)
+      {
+         last_width  = 0;
+         last_height = 0;
+      }
    }
 
-    // NVRAM Loading: Do this on first frame, AFTER RetroArch has loaded .srm
-    static bool first_run = true;
-    if (first_run)
-    {
-        first_run = false;
+   // NVRAM Loading: Do this on first frame, AFTER RetroArch has loaded .srm
+   static bool first_run = true;
+   if (first_run)
+   {
+      first_run = false;
         
-        log_cb(RETRO_LOG_INFO, "[Supermodel] First frame - checking NVRAM buffer...\n");
+      log_cb(RETRO_LOG_INFO, "[Supermodel] First frame - checking NVRAM buffer...\n");
         
-        // Check if buffer has valid block file data (first 16 bytes shouldn't all be zero)
-        bool has_nvram = false;
-        for (int i = 0; i < 16 && !has_nvram; i++)
-            has_nvram = (g_nvram_buffer[i] != 0);
+      // Check if buffer has valid block file data (first 16 bytes shouldn't all be zero)
+      bool has_nvram = false;
+      for (int i = 0; i < 16 && !has_nvram; i++)
+         has_nvram = (g_nvram_buffer[i] != 0);
         
-        if (has_nvram)
-        {
-            log_cb(RETRO_LOG_INFO, "[Supermodel] Loading NVRAM from .srm file\n");
+      if (has_nvram)
+      {
+         log_cb(RETRO_LOG_INFO, "[Supermodel] Loading NVRAM from .srm file\n");
             
-            CBlockFileMemory memFile(g_nvram_buffer, NVRAM_BUFFER_SIZE);
-            wrapper.getEmulator()->LoadNVRAM(&memFile);
-        }
-        else
-        {
-            log_cb(RETRO_LOG_INFO, "[Supermodel] No NVRAM data found, using defaults\n");
-        }
-    }
+         CBlockFileMemory memFile(g_nvram_buffer, NVRAM_BUFFER_SIZE);
+         wrapper.getEmulator()->LoadNVRAM(&memFile);
+      }
+      else
+      {
+         log_cb(RETRO_LOG_INFO, "[Supermodel] No NVRAM data found, using defaults\n");
+      }
+   }
 
     if (input_poll_cb) input_poll_cb();
 
-    unsigned target_w = wrapper.getXRes();
-    unsigned target_h = wrapper.getYRes();
+   // Apply resolution multiplier from core options - always use NATIVE resolution as base
+   const unsigned NATIVE_WIDTH = 496;
+   const unsigned NATIVE_HEIGHT = 384;
 
-    // OPTIMIZATION: Only update screen size if it actually changed.
-    if (target_w != last_width || target_h != last_height) {
-        wrapper.UpdateScreenSize(target_w, target_h);
-        last_width = target_w;
-        last_height = target_h;
-    }
+   unsigned target_w = NATIVE_WIDTH * g_options.resolution_multiplier;
+   unsigned target_h = NATIVE_HEIGHT * g_options.resolution_multiplier;
 
-    // CRITICAL FOR WINDOWS: Reset GL state BEFORE Supermodel renders
-    // Windows drivers are strict and don't tolerate corrupted state
-    GLuint sm_fbo = wrapper.getSuperAA()->GetTargetID();
-    glBindFramebuffer(GL_FRAMEBUFFER, sm_fbo);
-    
-    // Reset all potentially problematic state
-    glDisable(GL_SCISSOR_TEST);
-    glDisable(GL_STENCIL_TEST);
-    glEnable(GL_DEPTH_TEST);       // Supermodel needs depth
-    glDepthFunc(GL_LESS);
-    glDepthMask(GL_TRUE);
-    glDisable(GL_BLEND);
-    glDisable(GL_CULL_FACE);
-    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-    
-    // Clear the framebuffer (critical for Windows)
-    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-    glClearDepth(1.0);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+   // OPTIMIZATION: Only update screen size if it actually changed.
+   if (target_w != last_width || target_h != last_height) {
+      log_cb(RETRO_LOG_INFO, "[Supermodel] Resolution changed to %ux%u (multiplier: %dx)\n",
+            target_w, target_h, g_options.resolution_multiplier);
+      
+      wrapper.UpdateScreenSize(target_w, target_h);
+      
+      // CRITICAL: Tell RetroArch the active geometry changed
+      struct retro_game_geometry geometry;
+      geometry.base_width   = target_w;
+      geometry.base_height  = target_h;
+      geometry.max_width    = 496 * 4;  // Keep max at 4x
+      geometry.max_height   = 384 * 4;
+      geometry.aspect_ratio = 4.0f / 3.0f;
+      
+      environ_cb(RETRO_ENVIRONMENT_SET_GEOMETRY, &geometry);
+      
+      last_width = target_w;
+      last_height = target_h;
+   }
 
-    Game game = wrapper.getGame();
-    wrapper.Inputs->Poll(&game, 0, 0, target_w, target_h);
-    
-    // Run Supermodel with clean GL state
-    wrapper.Supermodel(game);
+   // CRITICAL FOR WINDOWS: Reset GL state BEFORE Supermodel renders
+   // Windows drivers are strict and don't tolerate corrupted state
+   GLuint sm_fbo = wrapper.getSuperModelFBO();
+   glBindFramebuffer(GL_FRAMEBUFFER, sm_fbo);
 
-    // CRITICAL FOR WINDOWS: Ensure all rendering is complete
-    glFlush();
+   // Reset all potentially problematic state
+   glDisable(GL_SCISSOR_TEST);
+   glDisable(GL_STENCIL_TEST);
+   glEnable(GL_DEPTH_TEST);       // Supermodel needs depth
+   glDepthFunc(GL_LESS);
+   glDepthMask(GL_TRUE);
+   glDisable(GL_BLEND);
+   glDisable(GL_CULL_FACE);
+   glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 
-    // Now prepare for blit to RetroArch's framebuffer
-    GLuint ra_fbo = wrapper.getHwRender().get_current_framebuffer();
-    
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, sm_fbo);
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, ra_fbo);
+   // CRITICAL FIX: Set viewport to match render target size
+   // RetroArch may have changed it, so we must set it here
+   glViewport(0, 0, target_w, target_h);
+   glScissor(0, 0, target_w, target_h);
 
-    // Disable tests that might interfere with blit
-    glDisable(GL_SCISSOR_TEST);
-    glDisable(GL_STENCIL_TEST);
-    glDisable(GL_DEPTH_TEST);
+   // Clear the framebuffer (critical for Windows)
+   glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+   glClearDepth(1.0);
+   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
-    // Blit from Internal Supermodel FBO to RetroArch's Front Buffer
-    glBlitFramebuffer(
-        0, 0, target_w, target_h,       // Source (Standard Orientation: 0 to H)
-        0, 0, target_w, target_h,       // Destination
-        GL_COLOR_BUFFER_BIT,
-        GL_LINEAR                       
-    );
+   // Remove the viewport logging - we don't need it anymore
+   Game game = wrapper.getGame();
+   wrapper.Inputs->Poll(&game, 0, 0, target_w, target_h);
 
-    // Reset to RetroArch's framebuffer
-    glBindFramebuffer(GL_FRAMEBUFFER, ra_fbo); 
-    
-    // Signal frame is ready
-    video_cb(RETRO_HW_FRAME_BUFFER_VALID, target_w, target_h, 0);
+   // Run Supermodel with clean GL state
+   wrapper.Supermodel(game);
+
+   // CRITICAL FIX: Supermodel changes viewport during rendering
+   // Force it back to correct dimensions for blitting
+   glViewport(0, 0, target_w, target_h);
+
+   // CHECK VIEWPORT AFTER FIX
+   GLint viewport_after_render[4];
+   glGetIntegerv(GL_VIEWPORT, viewport_after_render);
+   log_cb(RETRO_LOG_INFO, "[After Viewport Fix] Viewport: %d,%d,%d,%d\n",
+         viewport_after_render[0], viewport_after_render[1], viewport_after_render[2], viewport_after_render[3]);
+
+   // CRITICAL FOR WINDOWS: Ensure all rendering is complete
+   glFlush();
+
+   // Now prepare for blit to RetroArch's framebuffer
+   GLuint ra_fbo = wrapper.getHwRender().get_current_framebuffer();
+   
+   glBindFramebuffer(GL_READ_FRAMEBUFFER, sm_fbo);
+   glBindFramebuffer(GL_DRAW_FRAMEBUFFER, ra_fbo);
+
+   // Disable tests that might interfere with blit
+   glDisable(GL_SCISSOR_TEST);
+   glDisable(GL_STENCIL_TEST);
+   glDisable(GL_DEPTH_TEST);
+
+   // Blit from Internal Supermodel FBO to RetroArch's Front Buffer
+   glBlitFramebuffer(
+       0, 0, target_w, target_h,       // Source (Standard Orientation: 0 to H)
+       0, 0, target_w, target_h,       // Destination
+       GL_COLOR_BUFFER_BIT,
+       GL_LINEAR                       
+   );
+
+   // Reset to RetroArch's framebuffer
+   glBindFramebuffer(GL_FRAMEBUFFER, ra_fbo); 
+   // Signal frame is ready
+   video_cb(RETRO_HW_FRAME_BUFFER_VALID, target_w, target_h, 0);
 }
 
 // --- Save States ---

@@ -3,6 +3,8 @@
 #include <libretro.h>
 #include "ROMSet.h"
 #include <Inputs/Input.h>
+#include <GL/glew.h>
+
 #ifndef LIBRETRO_WRAPPER_H
 #define LIBRETRO_WRAPPER_H
 #define EEPROM_SIZE   0x200
@@ -16,7 +18,11 @@ class LibretroWrapper
 public:
 
     CInputs *Inputs = nullptr;
-
+    // --- Libretro intermediate render target ---
+    GLuint m_libretrFBO     = 0;
+    GLuint m_libretrTex     = 0;
+    GLuint m_libretrDepth   = 0;
+    
     static std::string s_analysisPath;
     static std::string s_configFilePath;
     static std::string s_gameXMLFilePath;
@@ -65,6 +71,8 @@ public:
     void ShutDownSupermodel();
     bool InitRenderers();
     void InitGL();
+    // Returns the actual FBO Supermodel renders into (SuperAA's or our own)
+    GLuint getSuperModelFBO() const;
 
 private:
     uint64_t m_lastFrameTime = 0;
