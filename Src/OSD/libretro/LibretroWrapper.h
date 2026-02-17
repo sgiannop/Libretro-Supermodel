@@ -45,7 +45,7 @@ public:
     IEmulator* getEmulator() const { return Model3; }
     retro_hw_render_callback getHwRender() const { return hw_render; }
     static const std::string& GetGameXMLPath() { return s_gameXMLFilePath; }
-    
+    void SetWidescreen(bool enabled);
     void setXRes(unsigned val) { xRes = val; }
     void setYRes(unsigned val) { yRes = val; }
     void setXOffset(unsigned val) { xOffset = val; }

@@ -115,18 +115,14 @@ void retro_get_system_info(struct retro_system_info *info)
 
 void retro_get_system_av_info(struct retro_system_av_info *info)
 {
-   // Model 3 Native Resolution
    info->geometry.base_width   = 496;
    info->geometry.base_height  = 384;
-   
-   // CRITICAL FIX: Set max to support 4x upscaling
-   info->geometry.max_width    = 496 * 4;  // 1984
-   info->geometry.max_height   = 384 * 4;  // 1536
-   info->geometry.aspect_ratio = 4.0f / 3.0f;
+   info->geometry.max_width    = 496 * 4;
+   info->geometry.max_height   = 384 * 4;
+   info->geometry.aspect_ratio = g_options.widescreen ? (16.0f / 9.0f) : (4.0f / 3.0f);
 
-   // Exact Hardware Timing
-   info->timing.fps            = 57.53; 
-   info->timing.sample_rate    = 44100.0;
+   info->timing.fps         = 57.53;
+   info->timing.sample_rate = 44100.0;
 }
 
 // --- OpenGL Context Management ---
@@ -180,11 +176,8 @@ bool retro_load_game(const struct retro_game_info *info)
       
    int emulation = wrapper.Emulate(info->path);
    if (emulation != 0) return false;
-
+   wrapper.SetWidescreen(g_options.widescreen);
    wrapper.SuperModelInit(wrapper.getGame());
-
-   // NVRAM will be loaded on the first call to retro_run()
-   // (RetroArch loads .srm AFTER retro_load_game returns)
 
    return true;
 }
@@ -208,12 +201,25 @@ void retro_run(void)
    bool options_updated = false;
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE, &options_updated) && options_updated)
    {
-      int  old_multiplier  = g_options.resolution_multiplier;
-      bool old_widescreen  = g_options.widescreen;
+      int  old_multiplier = g_options.resolution_multiplier;
+      bool old_widescreen = g_options.widescreen;
 
       update_core_options();
 
-      // Resolution: let the existing UpdateScreenSize path handle it
+      if (g_options.widescreen != old_widescreen)
+      {
+         wrapper.SetWidescreen(g_options.widescreen);
+
+         // Tell RetroArch the aspect ratio changed
+         struct retro_game_geometry geometry;
+         geometry.base_width   = last_width  ? last_width  : 496;
+         geometry.base_height  = last_height ? last_height : 384;
+         geometry.max_width    = 496 * 4;
+         geometry.max_height   = 384 * 4;
+         geometry.aspect_ratio = g_options.widescreen ? (16.0f / 9.0f) : (4.0f / 3.0f);
+         environ_cb(RETRO_ENVIRONMENT_SET_GEOMETRY, &geometry);
+      }
+
       if (g_options.resolution_multiplier != old_multiplier)
       {
          last_width  = 0;
@@ -258,22 +264,18 @@ void retro_run(void)
 
    // OPTIMIZATION: Only update screen size if it actually changed.
    if (target_w != last_width || target_h != last_height) {
-      log_cb(RETRO_LOG_INFO, "[Supermodel] Resolution changed to %ux%u (multiplier: %dx)\n",
-            target_w, target_h, g_options.resolution_multiplier);
-      
       wrapper.UpdateScreenSize(target_w, target_h);
       
-      // CRITICAL: Tell RetroArch the active geometry changed
       struct retro_game_geometry geometry;
       geometry.base_width   = target_w;
       geometry.base_height  = target_h;
-      geometry.max_width    = 496 * 4;  // Keep max at 4x
+      geometry.max_width    = 496 * 4;
       geometry.max_height   = 384 * 4;
-      geometry.aspect_ratio = 4.0f / 3.0f;
+      geometry.aspect_ratio = g_options.widescreen ? (16.0f / 9.0f) : (4.0f / 3.0f); // ← fix
       
       environ_cb(RETRO_ENVIRONMENT_SET_GEOMETRY, &geometry);
       
-      last_width = target_w;
+      last_width  = target_w;
       last_height = target_h;
    }
 

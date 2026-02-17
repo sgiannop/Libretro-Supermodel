@@ -710,3 +710,23 @@ GLuint LibretroWrapper::getSuperModelFBO() const
     GLuint saaFBO = superAA ? superAA->GetTargetID() : 0;
     return (saaFBO != 0) ? saaFBO : m_libretrFBO;
 }
+
+void LibretroWrapper::SetWidescreen(bool enabled)
+{
+    try {
+        s_runtime_config.Get("WideScreen").SetValue(enabled);
+    }
+    catch (const std::range_error&) {
+        s_runtime_config.Add("WideScreen").SetValue(enabled);
+    }
+
+    // Only reinit renderers if they already exist (i.e. GL context is live).
+    // On initial load, InitRenderers() will be called later by context_reset()
+    // and will pick up the correct WideScreen value from s_runtime_config.
+    if (Render2D == nullptr)
+        return;
+
+    if (Model3) Model3->PauseThreads();
+    InitRenderers();
+    if (Model3) Model3->ResumeThreads();
+}
