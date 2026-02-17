@@ -730,3 +730,10 @@ void LibretroWrapper::SetWidescreen(bool enabled)
     InitRenderers();
     if (Model3) Model3->ResumeThreads();
 }
+
+void LibretroWrapper::SetServiceOnSticks(bool enabled)
+{
+    auto* libretroInput = dynamic_cast<CLibretroInputSystem*>(m_inputSystem.get());
+    if (libretroInput)
+        libretroInput->SetServiceOnSticks(enabled);
+}

@@ -26,7 +26,7 @@ public:
     virtual bool IsMouseButPressed(int mseNum, int butNum) const override;
     virtual const MouseDetails *GetMouseDetails(int mseNum) override;
     virtual void SetMouseVisibility(bool visible) override;
-
+    void SetServiceOnSticks(bool enabled) { m_serviceOnSticks = enabled; }
     virtual int GetNumJoysticks() const override { return 2; }
     virtual int GetJoyAxisValue(int joyNum, int axisNum) const override;
     virtual bool IsJoyPOVInDir(int joyNum, int povNum, int povDir) const override;
@@ -43,7 +43,7 @@ private:
     int16_t m_joyAxes[2][NUM_JOY_AXES];
     uint8_t m_joyPOV[2][4]; // Up, Right, Down, Left]
     bool m_keyState[512];  // Add this for keyboard
-
+    bool m_serviceOnSticks = false;
 
 };
 

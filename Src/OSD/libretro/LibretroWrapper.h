@@ -58,6 +58,7 @@ public:
     void setHwRender(retro_hw_render_callback val) { hw_render = val; }
     void InitializePaths(const std::string& baseConfigPath);
     void UpdateScreenSize(unsigned newWidth, unsigned newHeight);
+    void SetServiceOnSticks(bool enabled);
     int Emulate(const char* romPath);
     void SetFullScreenRefreshRate();
     int Supermodel(const Game &game);

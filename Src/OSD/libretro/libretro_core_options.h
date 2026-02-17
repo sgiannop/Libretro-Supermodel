@@ -29,6 +29,7 @@ static struct retro_core_option_v2_category option_cats[] = {
 };
 
 static struct retro_core_option_v2_definition option_defs[] = {
+   // Video
    {
       "supermodel_resolution",
       "Internal Resolution",
@@ -87,6 +88,21 @@ static struct retro_core_option_v2_definition option_defs[] = {
       },
       "enabled"
    },
+   // Input
+   {
+      "supermodel_service_buttons",
+      "Service / Test Button Mapping",
+      NULL,
+      "Choose which buttons trigger Service and Test (coin door) functions.",
+      NULL,
+      "input",
+      {
+         { "shoulders", "L/R + L2/R2 (Shoulders)" },
+         { "sticks",    "L3/R3 (Stick Click)" },
+         { NULL, NULL },
+      },
+      "shoulders"
+   },
    {
       "supermodel_force_feedback",
       "Force Feedback",
@@ -118,6 +134,7 @@ static struct retro_core_option_v2_definition option_defs[] = {
       },
       "100"
    },
+   // Audio
    {
       "supermodel_sound_volume",
       "Sound Volume",
@@ -150,6 +167,7 @@ static struct retro_core_option_v2_definition option_defs[] = {
       },
       "100"
    },
+   // Network
    {
       "supermodel_net_mode",
       "Link Mode",
@@ -188,6 +206,7 @@ struct CoreOptions {
    int sound_volume;
    int music_volume;
    const char* net_mode;
+   bool service_on_sticks;
 };
 
 CoreOptions g_options = { 1, false, true, true, false, 100, 100, 100, "single" };
@@ -208,12 +227,14 @@ void update_core_options(void)
    g_options.widescreen = strcmp(option_get("supermodel_wide_screen", "disabled"), "enabled") == 0;
    g_options.vsync = strcmp(option_get("supermodel_vsync", "enabled"), "enabled") == 0;
    g_options.crosshairs = strcmp(option_get("supermodel_crosshairs", "enabled"), "enabled") == 0;
-   g_options.force_feedback = strcmp(option_get("supermodel_force_feedback", "disabled"), "enabled") == 0;
-   
-   g_options.analog_sensitivity = atoi(option_get("supermodel_analog_sensitivity", "100"));
+
    g_options.sound_volume = atoi(option_get("supermodel_sound_volume", "100"));
    g_options.music_volume = atoi(option_get("supermodel_music_volume", "100"));
-   
+
+   g_options.service_on_sticks = strcmp(option_get("supermodel_service_buttons", "shoulders"), "sticks") == 0;
+   g_options.force_feedback = strcmp(option_get("supermodel_force_feedback", "disabled"), "enabled") == 0;
+   g_options.analog_sensitivity = atoi(option_get("supermodel_analog_sensitivity", "100"));
+
    g_options.net_mode = option_get("supermodel_net_mode", "single");
 
    // if (log_cb)
