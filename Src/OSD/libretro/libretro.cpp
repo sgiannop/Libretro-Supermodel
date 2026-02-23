@@ -174,6 +174,7 @@ bool retro_load_game(const struct retro_game_info *info)
       
       if (libretroInput) {
          libretroInput->SetRumbleInterface(rumble);
+         libretroInput->SetFFBEnabled(g_options.force_feedback);
       }
    }
    else
@@ -197,6 +198,13 @@ bool retro_load_game(const struct retro_game_info *info)
    wrapper.SetWidescreen(g_options.widescreen);
    wrapper.SetServiceOnSticks(g_options.service_on_sticks);
    wrapper.SuperModelInit(wrapper.getGame());
+
+   // Re-apply FFB state after full DriveBoard initialization
+   auto libretroInput2 = std::static_pointer_cast<CLibretroInputSystem>(wrapper.getInputSystem());
+   if (libretroInput2 && g_options.force_feedback) {
+      libretroInput2->SetFFBEnabled(false);   // force a state transition
+      libretroInput2->SetFFBEnabled(true);
+   }
 
    return true;
 }
@@ -248,7 +256,19 @@ void retro_run(void)
 
       if (g_options.service_on_sticks != old_service_on_sticks)
          wrapper.SetServiceOnSticks(g_options.service_on_sticks);
+
+
+      auto libretroInput = std::static_pointer_cast<CLibretroInputSystem>(wrapper.getInputSystem());
+      if (libretroInput) {
+         libretroInput->SetFFBEnabled(g_options.force_feedback);
+         
+         // If we just disabled it, kill any active vibration immediately
+         if (!g_options.force_feedback) {
+            rumble.set_rumble_state(0, RETRO_RUMBLE_STRONG, 0);
+            rumble.set_rumble_state(0, RETRO_RUMBLE_WEAK, 0);
+         }
       }
+   }
 
    // NVRAM Loading: Do this on first frame, AFTER RetroArch has loaded .srm
    static bool first_run = true;

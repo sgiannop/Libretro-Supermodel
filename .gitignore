@@ -28,3 +28,6 @@ nul
 /msvc/x64
 /msvc/.vs/
 /msvc/*.opendb
+
+*.md
+!Docs/**/*.md

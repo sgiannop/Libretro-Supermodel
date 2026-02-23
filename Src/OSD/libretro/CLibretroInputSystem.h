@@ -33,9 +33,8 @@ public:
     virtual bool IsJoyPOVInDir(int joyNum, int povNum, int povDir) const override;
     virtual bool IsJoyButPressed(int joyNum, int butNum) const override;
     virtual const JoyDetails *GetJoyDetails(int joyNum) override;
-    void SetRumbleInterface(struct retro_rumble_interface interface) {
-        m_rumbleInterface = interface;
-    }
+    void SetRumbleInterface(struct retro_rumble_interface interface) { m_rumbleInterface = interface; }
+    void SetFFBEnabled(bool enabled) { m_ffbEnabled = enabled; }
     // Signature match check: Supermodel usually uses the struct directly, 
     // but ensure your .cpp matches this exactly.
     virtual bool ProcessForceFeedbackCmd(int joyNum, int axisNum, ForceFeedbackCmd ffCmd) override;
@@ -48,6 +47,7 @@ private:
     bool m_keyState[512];  // Add this for keyboard
     bool m_serviceOnSticks = false;
     retro_rumble_interface m_rumbleInterface;
+    bool m_ffbEnabled = false; // Guard flag
 };
 
 #endif
