@@ -16,6 +16,7 @@
 #include "Pkgs/GL/glew.h"
 #include "../../Graphics/SuperAA.h"
 #include "libretro_core_options.h"
+#include "CLibretroInputSystem.h"
 
 // --- Global Variables ---
 retro_video_refresh_t video_cb = NULL;
@@ -27,6 +28,7 @@ retro_input_state_t input_state_cb = NULL;
 retro_log_printf_t log_cb;
 
 struct retro_hw_render_callback hw_render;
+struct retro_rumble_interface rumble;
 static LibretroWrapper wrapper = LibretroWrapper();
 
 // Path buffers
@@ -163,6 +165,22 @@ bool retro_load_game(const struct retro_game_info *info)
        log_cb(RETRO_LOG_ERROR, "[Supermodel] HW Render Context negotiation failed.\n");
        return false;
    }
+
+   // 1. Attempt to get the Rumble Interface from the frontend
+   if (environ_cb(RETRO_ENVIRONMENT_GET_RUMBLE_INTERFACE, &rumble))
+   {
+      // Cast the base shared_ptr to the specific derived shared_ptr
+      auto libretroInput = std::static_pointer_cast<CLibretroInputSystem>(wrapper.getInputSystem());
+      
+      if (libretroInput) {
+         libretroInput->SetRumbleInterface(rumble);
+      }
+   }
+   else
+   {
+        // Optional: Log that rumble is not supported by this frontend/controller
+   }
+
    
    update_core_options();
    wrapper.InitializePaths(retro_base_directory);
@@ -323,8 +341,6 @@ void retro_run(void)
    // CHECK VIEWPORT AFTER FIX
    GLint viewport_after_render[4];
    glGetIntegerv(GL_VIEWPORT, viewport_after_render);
-   log_cb(RETRO_LOG_INFO, "[After Viewport Fix] Viewport: %d,%d,%d,%d\n",
-         viewport_after_render[0], viewport_after_render[1], viewport_after_render[2], viewport_after_render[3]);
 
    // CRITICAL FOR WINDOWS: Ensure all rendering is complete
    glFlush();
@@ -459,7 +475,6 @@ void retro_set_environment(retro_environment_t cb)
    if (environ_cb(RETRO_ENVIRONMENT_GET_VFS_INTERFACE, &vfs_iface_info))
       filestream_vfs_init(&vfs_iface_info);
 
-   // 2. ✅ REGISTER CORE OPTIONS (This was missing!)
    // Ensure option_cats and option_defs are defined ABOVE this function
    struct retro_core_options_v2 options_v2;
    options_v2.categories = option_cats;

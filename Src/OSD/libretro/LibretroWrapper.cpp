@@ -36,6 +36,7 @@
 #include "libretroCrosshair.h"
 #include "LibretroWrapper.h"
 #include "CLibretroInputSystem.h"
+#include "CLibretroOutputSystem.h"
 #include "libretroGui.h"
 #include "LibretroConfigProvider.h"
 
@@ -43,6 +44,8 @@
 extern void PlayCallback(void *userdata, UINT8 *stream, int len);
 extern UINT32 GetAvailableAudioLen();
 extern int bytes_per_frame_host;
+extern retro_environment_t environ_cb;
+extern retro_log_printf_t log_cb;  // defined in libretro.cpp
 
 /******************************************************************************
  Global Run-time Config
@@ -347,7 +350,7 @@ int LibretroWrapper::SuperModelInit(const Game &game) {
     return 1;
   if (Model3->LoadGame(game, rom_set) != Result::OKAY)
     return 1;
-  rom_set = ROMSet();  // free up this memory we won't need anymore
+  rom_set = ROMSet();  
 
   MpegDec::LoadCustomTracks(s_musicXMLFilePath, game);
 
@@ -362,16 +365,40 @@ int LibretroWrapper::SuperModelInit(const Game &game) {
   gameHasLightguns = !!(game.inputs & (Game::INPUT_GUN1|Game::INPUT_GUN2));
   gameHasLightguns |= game.name == "lostwsga";
   currentInputs = game.inputs;
+  
   if (gameHasLightguns)
     videoInputs = Inputs;
   else
     videoInputs = nullptr;
 
+  // --- FORCE FEEDBACK & OUTPUTS INITIALIZATION ---
+  
+  // 1. Initialize the concrete Output system if it hasn't been already
+  if (Outputs == nullptr) {
+      Outputs = new CLibretroOutputSystem();
+  }
+
+  // 2. Fetch the Rumble Interface from the Libretro environment
+  // (Assuming you have access to the environment callback here)
+  retro_rumble_interface rumble;
+  if (environ_cb && environ_cb(RETRO_ENVIRONMENT_GET_RUMBLE_INTERFACE, &rumble)) {
+      // We must cast the IInputSystem pointer to our specific Libretro implementation
+      // to access the rumble setter.
+      auto* libInput = static_cast<CLibretroInputSystem*>(m_inputSystem.get());
+      if (libInput) {
+          libInput->SetRumbleInterface(rumble);
+          printf("[Supermodel] Libretro Rumble Interface initialized.\n");
+      }
+  }
+
+  // 3. Attach everything to the Model 3 Core
   Model3->AttachInputs(Inputs);
-
-  if (Outputs != nullptr)
-    Model3->AttachOutputs(Outputs);
-
+  Model3->AttachOutputs(Outputs);
+  CModel3* m3 = dynamic_cast<CModel3*>(Model3);
+  if (m3 && log_cb)
+    log_cb(RETRO_LOG_INFO, "[Supermodel] DriveBoard ptr=%p IsAttached=%d\n", 
+           (void*)m3->GetDriveBoard(), m3->GetDriveBoard()->IsAttached() ? 1 : 0);
+  
   Model3->Reset();
 
   if (!initialState.empty())
@@ -384,6 +411,11 @@ QuitError:
   delete Render2D;
   delete Render3D;
   delete superAA;
+  // Clean up Outputs if we failed
+  if (Outputs) {
+      delete Outputs;
+      Outputs = nullptr;
+  }
   return 1;
 }
 

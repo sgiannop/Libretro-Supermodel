@@ -43,6 +43,7 @@ public:
     CRTcolor getCRTColors() const { return CRTcolors; }
     Game getGame() const { return game; }
     IEmulator* getEmulator() const { return Model3; }
+    std::shared_ptr<CInputSystem> getInputSystem() const { return m_inputSystem; }
     retro_hw_render_callback getHwRender() const { return hw_render; }
     static const std::string& GetGameXMLPath() { return s_gameXMLFilePath; }
     void SetWidescreen(bool enabled);

@@ -19,6 +19,7 @@ public:
     virtual const char *GetKeyName(int keyIndex) override;
     virtual bool IsKeyPressed(int kbdNum, int keyIndex) const override;
     virtual const KeyDetails *GetKeyDetails(int kbdNum) override;
+    bool Initialize();
 
     virtual int GetNumMice() const override { return 1; }
     virtual int GetMouseAxisValue(int mseNum, int axisNum) const override;
@@ -32,11 +33,13 @@ public:
     virtual bool IsJoyPOVInDir(int joyNum, int povNum, int povDir) const override;
     virtual bool IsJoyButPressed(int joyNum, int butNum) const override;
     virtual const JoyDetails *GetJoyDetails(int joyNum) override;
-
+    void SetRumbleInterface(struct retro_rumble_interface interface) {
+        m_rumbleInterface = interface;
+    }
     // Signature match check: Supermodel usually uses the struct directly, 
     // but ensure your .cpp matches this exactly.
     virtual bool ProcessForceFeedbackCmd(int joyNum, int axisNum, ForceFeedbackCmd ffCmd) override;
-    std::shared_ptr<CInputSource> ParseSource(const char* mapping, bool isAxis);
+    virtual CInputSource* ParseSource(const char *mapping, bool fullAxisOnly = false);
 
 private:
     int16_t m_joyButtons[2][NUM_JOY_BUTTONS];
@@ -44,7 +47,7 @@ private:
     uint8_t m_joyPOV[2][4]; // Up, Right, Down, Left]
     bool m_keyState[512];  // Add this for keyboard
     bool m_serviceOnSticks = false;
-
+    retro_rumble_interface m_rumbleInterface;
 };
 
 #endif

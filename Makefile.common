@@ -170,6 +170,7 @@ SOURCES_CXX +=   \
 					  $(CORE_DIR)/Src/OSD/libretro/libretroGui.cpp \
 					  $(CORE_DIR)/Src/OSD/libretro/LibretroBlockFileMemory.cpp \
 					  $(CORE_DIR)/Src/OSD/libretro/CLibretroInputSystem.cpp \
+					$(CORE_DIR)/Src/OSD/libretro/CLibretroOutputSystem.cpp \
 					  $(CORE_DIR)/Src/OSD/libretro/LibretroWrapper.cpp \
 					  $(CORE_DIR)/Src/OSD/libretro/libretro.cpp
 	                  

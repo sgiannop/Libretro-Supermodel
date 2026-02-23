@@ -2,17 +2,20 @@
 #include <libretro.h>
 #include "CLibretroInputSystem.h"
 #include <Inputs/Input.h>
+#include <cmath>
 
 extern retro_input_poll_t input_poll_cb;
 extern retro_input_state_t input_state_cb;
+extern retro_log_printf_t log_cb;  // defined in libretro.cpp
 
 CLibretroInputSystem::CLibretroInputSystem() 
     : CInputSystem("Libretro")
 {
-    std::memset(m_joyButtons, 0, sizeof(m_joyButtons));
-    std::memset(m_joyAxes,    0, sizeof(m_joyAxes));
-    std::memset(m_joyPOV,     0, sizeof(m_joyPOV));
-    std::memset(m_keyState,   0, sizeof(m_keyState));
+    memset(m_joyButtons, 0, sizeof(m_joyButtons));
+    memset(m_joyAxes,    0, sizeof(m_joyAxes));
+    memset(m_joyPOV,     0, sizeof(m_joyPOV));
+    memset(m_keyState,   0, sizeof(m_keyState));
+    memset(&m_rumbleInterface, 0, sizeof(m_rumbleInterface));
 }
 
 CLibretroInputSystem::~CLibretroInputSystem() {}
@@ -185,7 +188,48 @@ bool CLibretroInputSystem::IsMouseButPressed(int mseNum, int butNum) const { ret
 int CLibretroInputSystem::GetMouseAxisValue(int mseNum, int axisNum) const { return 0; }
 void CLibretroInputSystem::SetMouseVisibility(bool visible) {}
 const MouseDetails *CLibretroInputSystem::GetMouseDetails(int mseNum) { return nullptr; }
-bool CLibretroInputSystem::ProcessForceFeedbackCmd(int joyNum, int axisNum, ForceFeedbackCmd ffCmd) { return false; }
+
+bool CLibretroInputSystem::ProcessForceFeedbackCmd(int joyNum, int axisNum, ForceFeedbackCmd ffCmd)
+{
+    if (!m_rumbleInterface.set_rumble_state)
+    {
+        if (log_cb) log_cb(RETRO_LOG_INFO, "[FFB] Bailing - no rumble interface\n");
+        return false;
+    }
+
+    // If the user disabled FFB in the menu, or we have no interface, abort early
+    if (!m_ffbEnabled || !m_rumbleInterface.set_rumble_state)
+        return false;
+        
+    // 2. Map the float force (-1.0 to 1.0) to Libretro's uint16_t (0 to 65535)
+    // Most gamepads only support vibration strength, not direction, so we use absolute value.
+    uint16_t strength = (uint16_t)(std::min(std::abs(ffCmd.force), 1.0f) * 65535);
+
+    switch (ffCmd.id)
+    {
+        case FFConstantForce:
+        case FFSelfCenter:
+            // High torque effects go to the Strong (Low-Frequency) motor
+            m_rumbleInterface.set_rumble_state(joyNum, RETRO_RUMBLE_STRONG, strength);
+            break;
+
+        case FFVibrate:
+        case FFFriction:
+            // High frequency effects go to the Weak (High-Frequency) motor
+            m_rumbleInterface.set_rumble_state(joyNum, RETRO_RUMBLE_WEAK, strength);
+            break;
+
+        case FFStop:
+            m_rumbleInterface.set_rumble_state(joyNum, RETRO_RUMBLE_STRONG, 0);
+            m_rumbleInterface.set_rumble_state(joyNum, RETRO_RUMBLE_WEAK, 0);
+            break;
+
+        default:
+            return false;
+    }
+
+    return true;
+}
 
 const KeyDetails *CLibretroInputSystem::GetKeyDetails(int kbdNum)
 {
@@ -196,24 +240,62 @@ const KeyDetails *CLibretroInputSystem::GetKeyDetails(int kbdNum)
 
 const JoyDetails *CLibretroInputSystem::GetJoyDetails(int joyNum)
 {
-    static JoyDetails d;
+    static JoyDetails d[2];
     static bool initialized = false;
 
     if (!initialized) {
-        std::memset(&d, 0, sizeof(d));
-        std::strncpy(d.name, "Libretro Joypad", MAX_NAME_LENGTH);
-        
-        d.numButtons = 32; 
-        d.numAxes = 2;
-        d.numPOVs = 1; 
-
-        d.hasAxis[0] = true; // X
-        d.hasAxis[1] = true; // Y
+        for (int i = 0; i < 2; i++) {
+            std::memset(&d[i], 0, sizeof(d[i]));
+            std::strncpy(d[i].name, "Libretro Joypad", MAX_NAME_LENGTH);
+            d[i].numButtons = 32;
+            d[i].numAxes = 2;
+            d[i].numPOVs = 1;
+            d[i].hasAxis[0] = true;
+            d[i].hasAxis[1] = true;
+            d[i].hasFFeedback = true;
+            for (int a = 0; a < NUM_JOY_AXES; a++)
+                d[i].axisHasFF[a] = true;
+        }
         initialized = true;
     }
-    return &d;
+    return &d[joyNum];
 }
 
-bool CLibretroInputSystem::InitializeSystem() { return true; }
+CInputSource* CLibretroInputSystem::ParseSource(const char* mapping, bool fullAxisOnly)
+{
+    if (!mapping || strlen(mapping) == 0)
+        return nullptr;
+
+    int joyNum = -1;
+    int axisNum = -1;
+
+    if (sscanf(mapping, "JOY%d_XAXIS", &joyNum) == 1)
+        axisNum = 0;
+    else if (sscanf(mapping, "JOY%d_YAXIS", &joyNum) == 1)
+        axisNum = 1;
+
+    if (joyNum >= 0 && axisNum >= 0)
+    {
+        joyNum -= 1; // JOY1 -> 0
+        return new CJoyAxisInputSource(
+            this, joyNum, axisNum,
+            AXIS_FULL,
+            -32768, 0, 32767,
+            0, 100
+        );
+    }
+
+    return nullptr;
+}
+bool CLibretroInputSystem::InitializeSystem()
+{
+    return true;
+}
+bool CLibretroInputSystem::Initialize()
+{
+    bool result = CInputSystem::Initialize(); // let base do its thing
+    //SetNumJoys(2);
+    return result;
+}
 int CLibretroInputSystem::GetMouseWheelDir(int mseNum) const { return 0; }
 const char *CLibretroInputSystem::GetKeyName(int keyIndex) { return "NONE"; }
