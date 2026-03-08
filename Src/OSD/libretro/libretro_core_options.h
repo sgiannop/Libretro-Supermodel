@@ -209,7 +209,7 @@ struct CoreOptions {
    bool service_on_sticks;
 };
 
-CoreOptions g_options = { 1, false, true, true, false, 100, 100, 100, "single" };
+extern CoreOptions g_options;
 
 // --- Update Core Options ---
 void update_core_options(void)

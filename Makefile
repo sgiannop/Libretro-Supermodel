@@ -33,6 +33,8 @@ else ifneq (,$(findstring win,$(platform)))
     include Makefile.windows
 else ifneq (,$(findstring osx,$(platform)))
     include Makefile.osx
+else ifneq (,$(findstring android,$(platform)))
+    include Makefile.android
 else
     include Makefile.unix
 endif

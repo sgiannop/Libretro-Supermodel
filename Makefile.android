@@ -1,0 +1,81 @@
+# --- Android ---
+TARGET := $(TARGET_NAME)_libretro.so
+fpic := -fPIC
+SHARED := -shared
+PLATFORM_DEFINES += -DANDROID -D__LIBRETRO__ -DPSS_STYLE=1 -D_FILE_OFFSET_BITS=64
+PLATFORM_DEFINES += -D_POSIX_C_SOURCE=200809L -D_GNU_SOURCE
+LIBS += -lGLESv3 -llog -lz
+
+# Prepend Android shim headers to resolve <GL/glew.h> to our shim
+INCFLAGS := -I$(CORE_DIR)/Src/OSD/Android/include $(INCFLAGS)
+
+# --- NDK Detection ---
+# Check common locations if NDK_ROOT is not already set
+ifeq ($(NDK_ROOT),)
+    NDK_ROOT := $(shell ls -d ~/Android/Sdk/ndk/28.2.13676358 2>/dev/null)
+endif
+
+# If NDK is found, use its Clang toolchain
+ifneq ($(NDK_ROOT),)
+    # Default to aarch64 (64-bit ARM) if no 'arch' is specified
+    # Supported: arm, arm64, x86, x86_64
+    ifeq ($(arch),arm)
+        ARCH_TRIPLE := arm-linux-androideabi
+        CLANG_TRIPLE := armv7a-linux-androideabi24
+    else ifeq ($(arch),x86)
+        ARCH_TRIPLE := i686-linux-android
+        CLANG_TRIPLE := i686-linux-android24
+    else ifeq ($(arch),x86_64)
+        ARCH_TRIPLE := x86_64-linux-android
+        CLANG_TRIPLE := x86_64-linux-android24
+    else
+        # Default to arm64 (aarch64)
+        ARCH_TRIPLE := aarch64-linux-android
+        CLANG_TRIPLE := aarch64-linux-android24
+    endif
+
+    TOOLCHAIN := $(NDK_ROOT)/toolchains/llvm/prebuilt/linux-x86_64/bin
+    CC  := $(TOOLCHAIN)/$(CLANG_TRIPLE)-clang
+    CXX := $(TOOLCHAIN)/$(CLANG_TRIPLE)-clang++
+    LD  := $(CXX)
+    
+    # Android Clang usually needs some extra flags
+    CFLAGS   += -ffunction-sections -fdata-sections
+    CXXFLAGS += -ffunction-sections -fdata-sections
+    LDFLAGS  += -Wl,-soname,$(TARGET) -Wl,--no-undefined
+    
+    # Link C++ library statically to avoid dlopen issues on device
+    LDFLAGS  += -static-libstdc++
+else
+    # Fallback to generic names if NDK not found
+    CC  = arm-linux-androideabi-gcc
+    CXX = arm-linux-androideabi-g++
+    LD  := $(CXX)
+endif
+
+OBJOUT  = -o
+LINKOUT = -o
+LIBM    := -lm
+WARNING_DEFINES := -Wno-write-strings
+
+# Ensure CXXFLAGS is appended
+CXXFLAGS += -std=c++17
+
+ifeq ($(DEBUG), 1)
+    CFLAGS   += -O0 -g -DDEBUG
+    CXXFLAGS += -O0 -g -DDEBUG
+else
+    CFLAGS   += -O2 -DNDEBUG
+    CXXFLAGS += -O2 -DNDEBUG
+endif
+
+ifeq ($(EXTERNAL_ZLIB), 1)
+    CFLAGS   += -DHAVE_EXTERNAL_ZLIB
+    CXXFLAGS += -DHAVE_EXTERNAL_ZLIB
+endif
+
+# Android uses Unix-like file system paths
+SOURCES_CXX += $(CORE_DIR)/Src/OSD/Unix/FileSystemPath.cpp
+
+# Filter out Legacy3D sources as they are incompatible with GLES
+SOURCES_CXX := $(filter-out %/Legacy3D/Error.cpp %/Legacy3D/Legacy3D.cpp %/Legacy3D/Models.cpp %/Legacy3D/TextureRefs.cpp,$(SOURCES_CXX))

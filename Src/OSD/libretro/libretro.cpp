@@ -35,6 +35,8 @@ static LibretroWrapper wrapper = LibretroWrapper();
 char retro_save_directory[4096];
 char retro_base_directory[4096];
 
+CoreOptions g_options = { 1, false, true, true, false, 100, 100, 100, "single" };
+
 // Optimization: Cache last known resolution to avoid redundant updates
 static unsigned last_width = 0;
 static unsigned last_height = 0;
@@ -154,7 +156,11 @@ void context_destroy(void)
 // --- Game Loading ---
 bool retro_load_game(const struct retro_game_info *info)
 {
+#ifdef ANDROID
+   hw_render.context_type = RETRO_HW_CONTEXT_OPENGLES3;
+#else
    hw_render.context_type = RETRO_HW_CONTEXT_OPENGL; 
+#endif
    hw_render.context_reset = context_reset;
    hw_render.context_destroy = context_destroy;
    hw_render.depth = true;

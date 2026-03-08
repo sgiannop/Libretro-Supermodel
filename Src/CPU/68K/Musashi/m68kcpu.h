@@ -93,8 +93,11 @@
 #define uint32 unsigned int
 
 /* signed and unsigned int must be at least 32 bits wide */
-#define sint   signed   int
-#define uint   unsigned int
+typedef signed   int sint;
+#ifndef _UINT_T
+#define _UINT_T
+typedef unsigned int uint;
+#endif
 
 
 #if M68K_USE_64_BIT

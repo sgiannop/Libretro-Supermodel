@@ -47,6 +47,62 @@ extern int bytes_per_frame_host;
 extern retro_environment_t environ_cb;
 extern retro_log_printf_t log_cb;  // defined in libretro.cpp
 
+#ifdef ANDROID
+#include <android/log.h>
+#endif
+#define LOG_TAG "SupermodelCore"
+
+// --- RetroArch Logger Bridge ---
+class CRetroArchLogger : public CLogger
+{
+public:
+    void DebugLog(const char *fmt, va_list vl) override;
+    void InfoLog(const char *fmt, va_list vl) override;
+    void ErrorLog(const char *fmt, va_list vl) override;
+};
+
+void CRetroArchLogger::DebugLog(const char *fmt, va_list vl)
+{
+#ifdef ANDROID
+    va_list vl_copy;
+    va_copy(vl_copy, vl);
+    __android_log_vprint(ANDROID_LOG_DEBUG, LOG_TAG, fmt, vl_copy);
+    va_end(vl_copy);
+#endif
+    if (!log_cb) return;
+    char buf[2048];
+    vsnprintf(buf, sizeof(buf), fmt, vl);
+    log_cb(RETRO_LOG_DEBUG, "%s", buf);
+}
+
+void CRetroArchLogger::InfoLog(const char *fmt, va_list vl)
+{
+#ifdef ANDROID
+    va_list vl_copy;
+    va_copy(vl_copy, vl);
+    __android_log_vprint(ANDROID_LOG_INFO, LOG_TAG, fmt, vl_copy);
+    va_end(vl_copy);
+#endif
+    if (!log_cb) return;
+    char buf[2048];
+    vsnprintf(buf, sizeof(buf), fmt, vl);
+    log_cb(RETRO_LOG_INFO, "%s\n", buf);
+}
+
+void CRetroArchLogger::ErrorLog(const char *fmt, va_list vl)
+{
+#ifdef ANDROID
+    va_list vl_copy;
+    va_copy(vl_copy, vl);
+    __android_log_vprint(ANDROID_LOG_ERROR, LOG_TAG, fmt, vl_copy);
+    va_end(vl_copy);
+#endif
+    if (!log_cb) return;
+    char buf[2048];
+    vsnprintf(buf, sizeof(buf), fmt, vl);
+    log_cb(RETRO_LOG_ERROR, "%s\n", buf);
+}
+
 /******************************************************************************
  Global Run-time Config
 ******************************************************************************/
@@ -70,6 +126,12 @@ static const int BYTES_PER_FRAME_SYNC = (int)((AUDIO_SAMPLE_RATE / MODEL3_FPS) *
  * Crosshair stuff
  */
 static CCrosshair* s_crosshair = nullptr;
+
+#ifdef ANDROID
+#define ALOG(...) __android_log_print(ANDROID_LOG_INFO, "SupermodelCore", __VA_ARGS__)
+#else
+#define ALOG(...)
+#endif
 
 LibretroWrapper::LibretroWrapper() : 
     xRes(800), yRes(600), xOffset(0), yOffset(0), 
@@ -303,9 +365,9 @@ bool LibretroWrapper::InitRenderers()
 
         GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
         if (status != GL_FRAMEBUFFER_COMPLETE)
-            fprintf(stderr, "[Supermodel] Libretro FBO incomplete: 0x%X\n", status);
+            ErrorLog("[Supermodel] Libretro FBO incomplete: 0x%X", status);
         else
-            fprintf(stderr, "[Supermodel] Libretro FBO created: %ux%u (id=%u)\n",
+            InfoLog("[Supermodel] Libretro FBO created: %ux%u (id=%u)",
                     totalXRes, totalYRes, m_libretrFBO);
 
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -314,9 +376,13 @@ bool LibretroWrapper::InitRenderers()
 
     Render2D = new CRender2D(s_runtime_config);
     Render3D =
+#ifdef ANDROID
+        (IRender3D*)new New3D::CNew3D(s_runtime_config, Model3->GetGame().name);
+#else
         s_runtime_config["New3DEngine"].ValueAs<bool>()
         ? (IRender3D*)new New3D::CNew3D(s_runtime_config, Model3->GetGame().name)
         : (IRender3D*)new Legacy3D::CLegacy3D(s_runtime_config);
+#endif
 
     if (Result::OKAY != Render2D->Init(
             xOffset*aaValue, yOffset*aaValue,
@@ -629,19 +695,27 @@ Result LibretroWrapper::ConfigureInputs(CInputs *Inputs, Util::Config::Node *fil
   return Result::OKAY;
 }
 
-int LibretroWrapper::Emulate(const char* romPath) 
+int LibretroWrapper::Emulate(const char* romPath)
 {
     WriteDefaultConfigurationFileIfNotPresent();
+#ifdef ANDROID
+    // Use the RetroArch logger bridge so we can see errors in the RetroArch logs
+    auto ra_logger = std::make_shared<CRetroArchLogger>();
+    SetLogger(ra_logger);
+#else
     SetLogger(std::make_shared<CConsoleErrorLogger>());
+#endif
 
     char* argv[] = { (char*)"supermodel", (char*)romPath };
     int argc = 2;
     auto cmd_line = LibretroConfigProvider::ParseCommandLine(argc, argv);
     if (cmd_line.error) return 1;
 
+#ifndef ANDROID
     auto logger = CreateLogger(cmd_line.config);
     if (!logger) return 1;
     SetLogger(logger);
+#endif
     InfoLog("Supermodel Version " SUPERMODEL_VERSION);
   
     bool rom_specified = !cmd_line.rom_files.empty();
