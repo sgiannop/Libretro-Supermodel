@@ -3,7 +3,6 @@
 
 static const char* vertexShaderR3DQuads = R"glsl(
 
-#version 450 core
 
 // uniforms
 uniform float	modelScale;
@@ -72,7 +71,6 @@ void main(void)
 
 static const char* geometryShaderR3DQuads = R"glsl(
 
-#version 450 core
 
 layout (lines_adjacency) in;
 layout (triangle_strip, max_vertices = 4) out;
@@ -190,7 +188,6 @@ void main(void)
 
 static const char* fragmentShaderR3DQuads = R"glsl(
 
-#version 450 core
 
 uniform usampler2D textureBank[2];			// entire texture sheet
 

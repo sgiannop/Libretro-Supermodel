@@ -1,4 +1,11 @@
 #include "R3DFrameBuffers.h"
+#include <string>
+
+#ifdef ANDROID
+static const char* kGlslVersion = "#version 300 es\nprecision highp float;\n";
+#else
+static const char* kGlslVersion = "#version 410 core\n";
+#endif
 
 namespace New3D {
 
@@ -192,8 +199,6 @@ void R3DFrameBuffers::AllocShaderBase()
 {
 	static const char *vertexShader = R"glsl(
 
-	#version 410 core
-
 	void main(void)
 	{
 		const vec4 vertices[] = vec4[](vec4(-1.0, -1.0, 0.0, 1.0),
@@ -207,8 +212,6 @@ void R3DFrameBuffers::AllocShaderBase()
 	)glsl";
 
 	static const char *fragmentShader = R"glsl(
-
-	#version 410 core
 
 	// inputs
 	uniform sampler2D tex1;			// base tex
@@ -224,15 +227,15 @@ void R3DFrameBuffers::AllocShaderBase()
 
 	)glsl";
 
-	m_shaderBase.LoadShaders(vertexShader, fragmentShader);
+	std::string vs = std::string(kGlslVersion) + vertexShader;
+	std::string fs = std::string(kGlslVersion) + fragmentShader;
+	m_shaderBase.LoadShaders(vs.c_str(), fs.c_str());
 	m_shaderBase.uniformLoc[0] = m_shaderBase.GetUniformLocation("tex1");
 }
 
 void R3DFrameBuffers::AllocShaderTrans()
 {
 	static const char *vertexShader = R"glsl(
-
-	#version 410 core
 
 	void main(void)
 	{
@@ -247,8 +250,6 @@ void R3DFrameBuffers::AllocShaderTrans()
 	)glsl";
 
 	static const char *fragmentShader = R"glsl(
-
-	#version 410 core
 
 	uniform sampler2D tex1;			// trans layer 1
 	uniform sampler2D tex2;			// trans layer 2
@@ -277,7 +278,9 @@ void R3DFrameBuffers::AllocShaderTrans()
 
 	)glsl";
 
-	m_shaderTrans.LoadShaders(vertexShader, fragmentShader);
+	std::string vs = std::string(kGlslVersion) + vertexShader;
+	std::string fs = std::string(kGlslVersion) + fragmentShader;
+	m_shaderTrans.LoadShaders(vs.c_str(), fs.c_str());
 
 	m_shaderTrans.uniformLoc[0] = m_shaderTrans.GetUniformLocation("tex1");
 	m_shaderTrans.uniformLoc[1] = m_shaderTrans.GetUniformLocation("tex2");

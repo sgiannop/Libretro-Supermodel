@@ -32,8 +32,6 @@
 // Vertex shader
 static constexpr char s_vertexShader[] = R"glsl(
 
-	#version 410 core
-
 	// outputs
 	out vec2 fsTexCoord;
 
@@ -58,8 +56,6 @@ static constexpr char s_vertexShader[] = R"glsl(
 
 // Fragment shader
 static constexpr char s_fragmentShaderHeader[] = R"glsl(
-
-	#version 410 core
 
 	)glsl";
 

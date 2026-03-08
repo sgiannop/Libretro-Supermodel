@@ -12,8 +12,6 @@ SuperAA::SuperAA(int aaValue, CRTcolor CRTcolors) :
 
 		static const char* vertexShader = R"glsl(
 
-			#version 410 core
-
 			void main(void)
 			{
 				const vec4 vertices[] = vec4[](vec4(-1.0, -1.0, 0.0, 1.0),
@@ -27,10 +25,13 @@ SuperAA::SuperAA(int aaValue, CRTcolor CRTcolors) :
 			)glsl";
 
 
-		static const std::string fragmentShaderVersion = R"glsl(
-			#version 410 core
-
-		)glsl";
+#ifdef ANDROID
+		static const std::string fragmentShaderVersion = "#version 300 es\nprecision highp float;\n";
+		static const std::string vertexShaderVersion   = "#version 300 es\nprecision highp float;\n";
+#else
+		static const std::string fragmentShaderVersion = "#version 410 core\n";
+		static const std::string vertexShaderVersion   = "#version 410 core\n";
+#endif
 
 		std::string aaString = "const int aa = ";
 		aaString += std::to_string(m_aa);
@@ -164,10 +165,11 @@ SuperAA::SuperAA(int aaValue, CRTcolor CRTcolors) :
 
 		)glsl";
 
+		std::string vertexShaderString   = vertexShaderVersion + vertexShader;
 		std::string fragmentShaderString = fragmentShaderVersion + aaString + ccString + fragmentShader;
 
 		// load shaders
-		m_shader.LoadShaders(vertexShader, fragmentShaderString.c_str());
+		m_shader.LoadShaders(vertexShaderString.c_str(), fragmentShaderString.c_str());
 		m_shader.GetUniformLocationMap("tex1");
 
 		// setup uniform memory

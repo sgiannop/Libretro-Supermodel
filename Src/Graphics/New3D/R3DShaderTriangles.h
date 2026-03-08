@@ -3,7 +3,6 @@
 
 static const char *vertexShaderR3D = R"glsl(
 
-#version 410 core
 
 // uniforms
 uniform float	modelScale;
@@ -68,7 +67,6 @@ void main(void)
 
 static const char *fragmentShaderR3D = R"glsl(
 
-#version 410 core
 
 uniform usampler2D textureBank[2];			// entire texture sheet
 
