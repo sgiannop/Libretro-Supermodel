@@ -13,7 +13,7 @@
 #include "Game.h"
 #include "LibretroBlockFileMemory.h"
 #include "LibretroWrapper.h"
-#include "Pkgs/GL/glew.h"
+#include <GL/glew.h>
 #include "../../Graphics/SuperAA.h"
 #include "libretro_core_options.h"
 #include "CLibretroInputSystem.h"

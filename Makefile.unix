@@ -8,7 +8,7 @@ ifeq ($(platform), unix)
     else
         SHARED := -shared -Wl,--version-script=$(CORE_DIR)/link.T -Wl,-no-undefined
     endif
-    LIBS += $(shell pkg-config --libs glew gl glu zlib || echo "-lGLEW -lGL -lGLU -lz")
+    LIBS += $(shell pkg-config --libs gl glu zlib || echo "-lGL -lGLU -lz")
     CXXFLAGS += -std=c++17
     SOURCES_CXX += $(CORE_DIR)/Src/OSD/Unix/FileSystemPath.cpp
 

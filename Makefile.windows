@@ -38,34 +38,24 @@ ifneq (,$(findstring msvc,$(platform)))
 else
     # --- MinGW / Generic Windows ---
     TARGET := $(TARGET_NAME)_libretro.dll
-    
+
     ifeq ($(shell uname -o 2>/dev/null),Msys)
         # Native Windows MSYS2 build
         CC  = gcc
         CXX = g++
-        INCFLAGS += -I/mingw64/include
-        
-        # Force static pthread by adding -static flag
         LDFLAGS  += -L/mingw64/lib -static
-        
-        # Static link non-Windows libraries
-        LIBS += -lglew32 -lz -lpthread -lopengl32 -lglu32 -lgdi32
+        LIBS += -lz -lpthread -lopengl32 -lglu32 -lgdi32
     else
         # Cross-compiling from Ubuntu
         CC  = x86_64-w64-mingw32-gcc
         CXX = x86_64-w64-mingw32-g++
-        
-        GLEW_DIR := $(CORE_DIR)/deps/windows/glew-2.2.0
-        INCFLAGS += -I$(GLEW_DIR)/include
-        LDFLAGS  += -L$(GLEW_DIR)/lib/Release/x64
-        
-        LIBS += -lglew32s -lopengl32 -lglu32 -lgdi32 -lz
+        LIBS += -lopengl32 -lglu32 -lgdi32 -lz
     endif
-    
+
     LD  = $(CXX)
-    fpic   := -fPIC 
+    fpic   := -fPIC
     SHARED := -shared -static-libgcc -static-libstdc++ -Wl,--export-all-symbols
-    DEFINES  += -DGLEW_STATIC -D__LIBRETRO__
+    DEFINES  += -D__LIBRETRO__
     SOURCES_CXX += $(CORE_DIR)/Src/OSD/Windows/FileSystemPath.cpp
     PSS_STYLE := 2
     OBJOUT  = -o

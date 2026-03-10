@@ -8,6 +8,9 @@
 #include <memory>
 #include <vector>
 #include <GL/glew.h>
+#ifndef ANDROID
+#include <glsym/rglgen.h>
+#endif
 #include <libretro.h>
 #include "Inputs/Inputs.h"
 
@@ -787,16 +790,13 @@ Exit:
 
 void LibretroWrapper::InitGL()
 {
-    static bool glew_done = false;
-    if (!glew_done)
+    static bool glsym_done = false;
+    if (!glsym_done)
     {
-        GLenum err = glewInit();
-        if (GLEW_OK != err)
-        {
-            ErrorLog("GLEW init failed: %s", glewGetErrorString(err));
-            return;
-        }
-        glew_done = true;
+#ifndef ANDROID
+        rglgen_resolve_symbols(hw_render.get_proc_address);
+#endif
+        glsym_done = true;
     }
 
     // CRITICAL: Ensure internal textures (fonts, UI) are 1-byte aligned 
