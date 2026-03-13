@@ -316,7 +316,7 @@ bool BeginFrameVideo()
 void EndFrameVideo()
 {
   // Show crosshairs for light gun games
-  if (videoInputs)
+  if (videoInputs && s_crosshair)
     s_crosshair->Update(currentInputs, videoInputs, g_ctx->getXOffset(), g_ctx->getYOffset(), g_ctx->getXRes(), g_ctx->getYRes());
 }
 
@@ -400,6 +400,15 @@ bool LibretroWrapper::InitRenderers()
             totalXRes*aaValue, totalYRes*aaValue,
             renderTarget))               // ← same here
         return false;
+
+    // Initialize crosshair if it exists and hasn't been initialized yet
+    if (s_crosshair)
+    {
+        if (s_crosshair->Init() != Result::OKAY)
+        {
+            InfoLog("[Supermodel] Crosshair initialization failed (Assets missing?), falling back to vector mode.");
+        }
+    }
 
     Model3->AttachRenderers(Render2D, Render3D, superAA);
     return true;
@@ -649,6 +658,8 @@ void LibretroWrapper::ShutDownSupermodel()
   delete Render2D;
   delete Render3D;
   delete superAA;
+  delete s_crosshair;
+  s_crosshair = nullptr;
 }
 
 /******************************************************************************
@@ -764,12 +775,15 @@ int LibretroWrapper::Emulate(const char* romPath)
     Inputs = new CInputs(m_inputSystem);
     if (!Inputs->Initialize())
     {
-        fprintf(stderr, "Failed to initialize Input System!\n");
-        return 0; 
+      fprintf(stderr, "Failed to initialize Input System!\n");
+      return 0; 
     }
 
-    Model3 = new CModel3(s_runtime_config);
+    // Allocate crosshair object (Initialization deferred to InitRenderers)
+    if (s_crosshair) delete s_crosshair;
+    s_crosshair = new CCrosshair(s_runtime_config);
 
+    Model3 = new CModel3(s_runtime_config);
     if (ConfigureInputs(Inputs, &fileConfig, &s_runtime_config, game, cmd_line.config_inputs) != Result::OKAY)
     {
         exitCode = 1;

@@ -89,13 +89,6 @@ Requires the Android NDK. The build system checks `~/Android/Sdk/ndk/28.2.136763
 # arm64 (default)
 make platform=android -j$(nproc)
 
-# 32-bit ARM
-make platform=android arch=arm -j$(nproc)
-
-# x86_64
-make platform=android arch=x86_64 -j$(nproc)
-```
-
 ---
 
 ## 🎮 Performance Notes

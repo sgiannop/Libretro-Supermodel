@@ -94,9 +94,13 @@ Result CCrosshair::Init()
 
   BuildCrosshairVertices();
 
-  // ... Shader strings and Shader.LoadShaders remain exactly the same ...
-  m_vertexShader = R"glsl(
-    #version 410 core
+#ifdef ANDROID
+  const std::string versionStr = "#version 300 es\nprecision highp float;\n";
+#else
+  const std::string versionStr = "#version 410 core\n";
+#endif
+
+  std::string vShader = versionStr + R"glsl(
     uniform mat4 mvp;
     layout(location = 0) in vec3 inVertices;
     layout(location = 1) in vec2 vertexUV;
@@ -107,8 +111,7 @@ Result CCrosshair::Init()
     }
   )glsl";
 
-  m_fragmentShader = R"glsl(
-    #version 410 core
+  std::string fShader = versionStr + R"glsl(
     uniform vec4 colour;
     uniform sampler2D CrosshairTexture;
     uniform bool isBitmap;
@@ -120,7 +123,7 @@ Result CCrosshair::Init()
     }
   )glsl";
 
-  m_shader.LoadShaders(m_vertexShader, m_fragmentShader);
+  m_shader.LoadShaders(vShader.c_str(), fShader.c_str());
   m_shader.GetUniformLocationMap("mvp");
   m_shader.GetUniformLocationMap("CrosshairTexture");
   m_shader.GetUniformLocationMap("colour");
@@ -133,7 +136,7 @@ Result CCrosshair::Init()
   glBindVertexArray(m_vao);
 
   m_vbo.Bind(true);
-  glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, sizeof(BasicVertex), 0);
+  glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(BasicVertex), 0);
   glEnableVertexAttribArray(0);
 
   m_textvbo.Bind(true);
@@ -192,7 +195,7 @@ void CCrosshair::DrawCrosshair(New3D::Mat4 matrix, float x, float y, int player,
   if (!m_isBitmapCrosshair)
   {
     if (player == 0) r = 1.0f; else g = 1.0f;
-    matrix.Scale(m_dpiMultiplicator, m_dpiMultiplicator * aspect, 0);
+    matrix.Scale(m_dpiMultiplicator, m_dpiMultiplicator * aspect, 1.0f);
     glUniformMatrix4fv(m_shader.uniformLocMap["mvp"], 1, GL_FALSE, matrix);
     glUniform4f(m_shader.uniformLocMap["colour"], r, g, b, 1.0f);
     glUniform1i(m_shader.uniformLocMap["isBitmap"], false);
@@ -203,7 +206,7 @@ void CCrosshair::DrawCrosshair(New3D::Mat4 matrix, float x, float y, int player,
   {
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, m_crosshairTexId[player]);
-    matrix.Scale(m_dpiMultiplicator * m_scaleBitmap, m_dpiMultiplicator * m_scaleBitmap * aspect, 0);
+    matrix.Scale(m_dpiMultiplicator * m_scaleBitmap, m_dpiMultiplicator * m_scaleBitmap * aspect, 1.0f);
     glUniformMatrix4fv(m_shader.uniformLocMap["mvp"], 1, GL_FALSE, matrix);
     glUniform1i(m_shader.uniformLocMap["CrosshairTexture"], 0);
     glUniform4f(m_shader.uniformLocMap["colour"], 1.0f, 1.0f, 1.0f, 1.0f);
@@ -238,6 +241,8 @@ void CCrosshair::Update(uint32_t currentInputs, CInputs* Inputs, unsigned int xO
 
   glViewport(xOffset, yOffset, xRes, yRes);
   glDisable(GL_DEPTH_TEST);
+  glDisable(GL_CULL_FACE);
+  glDisable(GL_SCISSOR_TEST);
 
   if (m_isBitmapCrosshair) {
     glEnable(GL_BLEND);
@@ -281,6 +286,6 @@ void CCrosshair::GunToViewCoords(float* x, float* y)
 }
 
 CCrosshair::CCrosshair(const Util::Config::Node& config)
-  : m_config(config), m_vertexShader(nullptr), m_fragmentShader(nullptr) {}
+  : m_config(config) {}
 
 CCrosshair::~CCrosshair() {}

@@ -21,7 +21,7 @@ public:
     virtual const KeyDetails *GetKeyDetails(int kbdNum) override;
     bool Initialize();
 
-    virtual int GetNumMice() const override { return 1; }
+    virtual int GetNumMice() const override { return 3; }
     virtual int GetMouseAxisValue(int mseNum, int axisNum) const override;
     virtual int GetMouseWheelDir(int mseNum) const override;
     virtual bool IsMouseButPressed(int mseNum, int butNum) const override;
@@ -38,13 +38,21 @@ public:
     // Signature match check: Supermodel usually uses the struct directly, 
     // but ensure your .cpp matches this exactly.
     virtual bool ProcessForceFeedbackCmd(int joyNum, int axisNum, ForceFeedbackCmd ffCmd) override;
-    virtual CInputSource* ParseSource(const char *mapping, bool fullAxisOnly = false);
 
 private:
     int16_t m_joyButtons[2][NUM_JOY_BUTTONS];
     int16_t m_joyAxes[2][NUM_JOY_AXES];
     uint8_t m_joyPOV[2][4]; // Up, Right, Down, Left]
     bool m_keyState[512];  // Add this for keyboard
+    
+    // Mouse/Lightgun support (3 devices: 1 mouse, 2 lightguns)
+    int16_t m_mouseAxes[3][NUM_MOUSE_AXES];
+    bool m_mouseButtons[3][NUM_MOUSE_BUTTONS];
+    int m_mouseWheelDir[3];
+    bool m_mouseIsAbsolute[3];
+    int m_mouseX = 0;
+    int m_mouseY = 0;
+
     bool m_serviceOnSticks = false;
     retro_rumble_interface m_rumbleInterface;
     bool m_ffbEnabled = false; // Guard flag

@@ -63,8 +63,6 @@ private:
   VBO m_textvbo;
   GLuint m_vao = 0;
   int m_textureCoordsCount = 0;
-  const char* m_vertexShader;
-  const char* m_fragmentShader;
 
   const int MaxVerts = 1024;  // per draw call
 

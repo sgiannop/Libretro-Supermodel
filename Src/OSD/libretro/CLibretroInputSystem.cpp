@@ -3,18 +3,23 @@
 #include "CLibretroInputSystem.h"
 #include <Inputs/Input.h>
 #include <cmath>
+#include <algorithm>
 
 extern retro_input_poll_t input_poll_cb;
 extern retro_input_state_t input_state_cb;
 extern retro_log_printf_t log_cb;  // defined in libretro.cpp
 
 CLibretroInputSystem::CLibretroInputSystem() 
-    : CInputSystem("Libretro")
+    : CInputSystem("Libretro"), m_mouseX(0), m_mouseY(0)
 {
     memset(m_joyButtons, 0, sizeof(m_joyButtons));
     memset(m_joyAxes,    0, sizeof(m_joyAxes));
     memset(m_joyPOV,     0, sizeof(m_joyPOV));
     memset(m_keyState,   0, sizeof(m_keyState));
+    memset(m_mouseAxes,  0, sizeof(m_mouseAxes));
+    memset(m_mouseButtons, 0, sizeof(m_mouseButtons));
+    memset(m_mouseWheelDir, 0, sizeof(m_mouseWheelDir));
+    memset(m_mouseIsAbsolute, 0, sizeof(m_mouseIsAbsolute));
     memset(&m_rumbleInterface, 0, sizeof(m_rumbleInterface));
 }
 
@@ -30,6 +35,68 @@ bool CLibretroInputSystem::Poll()
     // ----- Keyboard -----
     for (int k = 0; k < 512; k++)
         m_keyState[k] = input_state_cb(0, RETRO_DEVICE_KEYBOARD, 0, k);
+
+    // Ensure we have some display dimensions
+    if (m_dispW == 0) { m_dispW = 496; m_dispH = 384; }
+
+    // ----- Mouse (Device 0) -----
+    int rel_x = input_state_cb(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_X);
+    int rel_y = input_state_cb(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_Y);
+    
+    m_mouseX += rel_x;
+    m_mouseY += rel_y;
+    
+    // Clamp to display bounds
+    if (m_mouseX < 0) m_mouseX = 0;
+    if (m_mouseX >= (int)m_dispW) m_mouseX = m_dispW - 1;
+    if (m_mouseY < 0) m_mouseY = 0;
+    if (m_mouseY >= (int)m_dispH) m_mouseY = m_dispH - 1;
+
+    m_mouseAxes[0][AXIS_X] = m_mouseX;
+    m_mouseAxes[0][AXIS_Y] = m_mouseY;
+    
+    // Mouse Wheel simulation
+    m_mouseWheelDir[0] = 0;
+    if (input_state_cb(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_WHEELUP))
+    {
+        m_mouseAxes[0][AXIS_Z] += 5;
+        m_mouseWheelDir[0] = 1;
+    }
+    else if (input_state_cb(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_WHEELDOWN))
+    {
+        m_mouseAxes[0][AXIS_Z] -= 5;
+        m_mouseWheelDir[0] = -1;
+    }
+
+    m_mouseButtons[0][0] = input_state_cb(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_LEFT);
+    m_mouseButtons[0][1] = input_state_cb(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_RIGHT);
+    m_mouseButtons[0][2] = input_state_cb(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_MIDDLE);
+    m_mouseButtons[0][3] = input_state_cb(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_BUTTON_4);
+    m_mouseButtons[0][4] = input_state_cb(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_BUTTON_5);
+    m_mouseIsAbsolute[0] = false;
+
+    // ----- Lightguns (Devices 1 and 2) -----
+    for (int i = 0; i < 2; i++)
+    {
+        int dev = i + 1;
+        // Use SCREEN_X/Y for absolute position (-32768 to 32767)
+        int lg_x = input_state_cb(i, RETRO_DEVICE_LIGHTGUN, 0, RETRO_DEVICE_ID_LIGHTGUN_SCREEN_X);
+        int lg_y = input_state_cb(i, RETRO_DEVICE_LIGHTGUN, 0, RETRO_DEVICE_ID_LIGHTGUN_SCREEN_Y);
+        
+        // Scale to display coordinates
+        m_mouseAxes[dev][AXIS_X] = (int)(((float)lg_x + 32768.0f) / 65535.0f * (float)m_dispW);
+        m_mouseAxes[dev][AXIS_Y] = (int)(((float)lg_y + 32768.0f) / 65535.0f * (float)m_dispH);
+        m_mouseAxes[dev][AXIS_Z] = 0;
+        m_mouseWheelDir[dev] = 0;
+
+        m_mouseButtons[dev][0] = input_state_cb(i, RETRO_DEVICE_LIGHTGUN, 0, RETRO_DEVICE_ID_LIGHTGUN_TRIGGER);
+        m_mouseButtons[dev][1] = input_state_cb(i, RETRO_DEVICE_LIGHTGUN, 0, RETRO_DEVICE_ID_LIGHTGUN_RELOAD) || 
+                                 input_state_cb(i, RETRO_DEVICE_LIGHTGUN, 0, RETRO_DEVICE_ID_LIGHTGUN_IS_OFFSCREEN);
+        m_mouseButtons[dev][2] = input_state_cb(i, RETRO_DEVICE_LIGHTGUN, 0, RETRO_DEVICE_ID_LIGHTGUN_AUX_A);
+        m_mouseButtons[dev][3] = input_state_cb(i, RETRO_DEVICE_LIGHTGUN, 0, RETRO_DEVICE_ID_LIGHTGUN_START);
+        m_mouseButtons[dev][4] = input_state_cb(i, RETRO_DEVICE_LIGHTGUN, 0, RETRO_DEVICE_ID_LIGHTGUN_SELECT);
+        m_mouseIsAbsolute[dev] = true;
+    }
 
     const int16_t THRESHOLD = 8000;
 
@@ -184,16 +251,73 @@ bool CLibretroInputSystem::IsKeyPressed(int kbdNum, int keyIndex) const
 }
 
 
-bool CLibretroInputSystem::IsMouseButPressed(int mseNum, int butNum) const { return false; }
-int CLibretroInputSystem::GetMouseAxisValue(int mseNum, int axisNum) const { return 0; }
-void CLibretroInputSystem::SetMouseVisibility(bool visible) {}
-const MouseDetails *CLibretroInputSystem::GetMouseDetails(int mseNum) { return nullptr; }
+bool CLibretroInputSystem::IsMouseButPressed(int mseNum, int butNum) const
+{
+    if (mseNum == ANY_MOUSE)
+    {
+        return m_mouseButtons[0][butNum] || m_mouseButtons[1][butNum] || m_mouseButtons[2][butNum];
+    }
+    if (mseNum < 0 || mseNum >= 3) return false;
+    if (butNum < 0 || butNum >= NUM_MOUSE_BUTTONS) return false;
+    return m_mouseButtons[mseNum][butNum];
+}
+
+int CLibretroInputSystem::GetMouseAxisValue(int mseNum, int axisNum) const
+{
+    if (mseNum == ANY_MOUSE)
+    {
+        // For absolute axes, return the one that is currently being used.
+        // For simplicity, prioritize lightguns if they moved significantly, otherwise mouse 0.
+        return m_mouseAxes[0][axisNum];
+    }
+    if (mseNum < 0 || mseNum >= 3) return 0;
+    if (axisNum < 0 || axisNum >= NUM_MOUSE_AXES) return 0;
+    return m_mouseAxes[mseNum][axisNum];
+}
+
+int CLibretroInputSystem::GetMouseWheelDir(int mseNum) const
+{
+    if (mseNum == ANY_MOUSE)
+    {
+        return m_mouseWheelDir[0] != 0 ? m_mouseWheelDir[0] : 
+               (m_mouseWheelDir[1] != 0 ? m_mouseWheelDir[1] : m_mouseWheelDir[2]);
+    }
+    if (mseNum < 0 || mseNum >= 3) return 0;
+    return m_mouseWheelDir[mseNum];
+}
+
+void CLibretroInputSystem::SetMouseVisibility(bool visible)
+{
+}
+
+const MouseDetails *CLibretroInputSystem::GetMouseDetails(int mseNum)
+{
+    static MouseDetails d[3];
+    static bool initialized = false;
+
+    if (!initialized) {
+        // Device 0: Standard Mouse
+        std::memset(&d[0], 0, sizeof(d[0]));
+        std::strncpy(d[0].name, "Libretro Mouse", MAX_NAME_LENGTH);
+        d[0].isAbsolute = false;
+
+        // Device 1 & 2: Lightguns (Absolute)
+        for (int i = 1; i < 3; i++) {
+            std::memset(&d[i], 0, sizeof(d[i]));
+            snprintf(d[i].name, MAX_NAME_LENGTH, "Libretro Lightgun %d", i);
+            d[i].isAbsolute = true;
+        }
+        initialized = true;
+    }
+    
+    if (mseNum < 0 || mseNum >= 3) return nullptr;
+    return &d[mseNum];
+}
 
 bool CLibretroInputSystem::ProcessForceFeedbackCmd(int joyNum, int axisNum, ForceFeedbackCmd ffCmd)
 {
     if (!m_rumbleInterface.set_rumble_state)
     {
-        if (log_cb) log_cb(RETRO_LOG_INFO, "[FFB] Bailing - no rumble interface\n");
         return false;
     }
 
@@ -261,32 +385,6 @@ const JoyDetails *CLibretroInputSystem::GetJoyDetails(int joyNum)
     return &d[joyNum];
 }
 
-CInputSource* CLibretroInputSystem::ParseSource(const char* mapping, bool fullAxisOnly)
-{
-    if (!mapping || strlen(mapping) == 0)
-        return nullptr;
-
-    int joyNum = -1;
-    int axisNum = -1;
-
-    if (sscanf(mapping, "JOY%d_XAXIS", &joyNum) == 1)
-        axisNum = 0;
-    else if (sscanf(mapping, "JOY%d_YAXIS", &joyNum) == 1)
-        axisNum = 1;
-
-    if (joyNum >= 0 && axisNum >= 0)
-    {
-        joyNum -= 1; // JOY1 -> 0
-        return new CJoyAxisInputSource(
-            this, joyNum, axisNum,
-            AXIS_FULL,
-            -32768, 0, 32767,
-            0, 100
-        );
-    }
-
-    return nullptr;
-}
 bool CLibretroInputSystem::InitializeSystem()
 {
     return true;
@@ -294,8 +392,6 @@ bool CLibretroInputSystem::InitializeSystem()
 bool CLibretroInputSystem::Initialize()
 {
     bool result = CInputSystem::Initialize(); // let base do its thing
-    //SetNumJoys(2);
     return result;
 }
-int CLibretroInputSystem::GetMouseWheelDir(int mseNum) const { return 0; }
 const char *CLibretroInputSystem::GetKeyName(int keyIndex) { return "NONE"; }

@@ -512,7 +512,7 @@ void retro_set_environment(retro_environment_t cb)
    environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE, &dummy);
    
    // 4. Input Descriptors
-   set_input_descriptors(cb); 
+   set_input_descriptors(g_options.service_on_sticks); 
 }
 
 void retro_set_audio_sample(retro_audio_sample_t cb)
