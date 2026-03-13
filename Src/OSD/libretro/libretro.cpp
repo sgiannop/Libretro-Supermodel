@@ -35,7 +35,7 @@ static LibretroWrapper wrapper = LibretroWrapper();
 char retro_save_directory[4096];
 char retro_base_directory[4096];
 
-CoreOptions g_options = { 1, false, true, true, false, 100, 100, 100, "single" };
+CoreOptions g_options = { 1, false, true, true, false, 100, 100, 100 };
 
 // Optimization: Cache last known resolution to avoid redundant updates
 static unsigned last_width = 0;

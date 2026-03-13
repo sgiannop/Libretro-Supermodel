@@ -20,11 +20,6 @@ static struct retro_core_option_v2_category option_cats[] = {
       "Input",
       "Configure input and control settings."
    },
-   {
-      "network",
-      "Network / Link Play",
-      "Configure arcade link cable emulation."
-   },
    { NULL, NULL, NULL },
 };
 
@@ -167,22 +162,6 @@ static struct retro_core_option_v2_definition option_defs[] = {
       },
       "100"
    },
-   // Network
-   {
-      "supermodel_net_mode",
-      "Link Mode",
-      NULL,
-      "Set this machine as Master or Slave for linked games (Scud Race, Daytona 2). Set IP in Supermodel.ini.",
-      NULL,
-      "network",
-      {
-         { "single", "Single Machine" },
-         { "master", "Master (Host)" },
-         { "slave",  "Slave (Client)" },
-         { NULL, NULL }
-      },
-      "single"
-   },
    { NULL, NULL, NULL, NULL, NULL, NULL, {{0}}, NULL },
 };
 
@@ -196,20 +175,7 @@ static const char* option_get(const char* key, const char* default_value)
 }
 
 // Cache for parsed options
-struct CoreOptions {
-   int resolution_multiplier;
-   bool widescreen;
-   bool vsync;
-   bool crosshairs;
-   bool force_feedback;
-   int analog_sensitivity;
-   int sound_volume;
-   int music_volume;
-   const char* net_mode;
-   bool service_on_sticks;
-};
-
-extern CoreOptions g_options;
+#include "CoreOptionsTypes.h"
 
 // --- Update Core Options ---
 void update_core_options(void)
@@ -235,11 +201,9 @@ void update_core_options(void)
    g_options.force_feedback = strcmp(option_get("supermodel_force_feedback", "disabled"), "enabled") == 0;
    g_options.analog_sensitivity = atoi(option_get("supermodel_analog_sensitivity", "100"));
 
-   g_options.net_mode = option_get("supermodel_net_mode", "single");
-
    // if (log_cb)
    // {
-   //    log_cb(RETRO_LOG_INFO, "[Supermodel] Options updated: Resolution=%dx, Widescreen=%d, Network=%s\n", 
-   //           g_options.resolution_multiplier, g_options.widescreen, g_options.net_mode);
+   //    log_cb(RETRO_LOG_INFO, "[Supermodel] Options updated: Resolution=%dx, Widescreen=%d\n",
+   //           g_options.resolution_multiplier, g_options.widescreen);
    // }
 }
