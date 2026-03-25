@@ -1623,14 +1623,11 @@ void CNew3D::CalcViewport(Viewport* vp)
 		 * which means there will be no aspect ratio correction and the display
 		 * will stretch to fill the entire window while keeping the view frustum
 		 * the same as a 496x384 Model 3 display. The display will be distorted.
+		 *
+		 * In Libretro, the window and viewable area are always the same size, so we
+		 * manually apply the widescreen frustum expansion factor (16:9 / 4:3 = 4:3).
 		 */
-		float windowAR = (float)m_totalXRes / (float)m_totalYRes;
-		float viewableAreaAR = (float)m_xRes / (float)m_yRes;
-		
-		// Will expand horizontal frustum planes only in non-stretch mode (wide-
-		// screen and non-wide-screen modes have identical resolution parameters
-		// and only their scissor box differs)
-		float correction = windowAR / viewableAreaAR;
+		float correction = (16.0f / 9.0f) / (4.0f / 3.0f);
 		m_planes.correction = 1.0f / correction;
 
 		vp->x		= 0;

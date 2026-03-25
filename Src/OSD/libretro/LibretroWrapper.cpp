@@ -387,16 +387,19 @@ bool LibretroWrapper::InitRenderers()
         : (IRender3D*)new Legacy3D::CLegacy3D(s_runtime_config);
 #endif
 
+     unsigned render_xRes = xRes;
+    unsigned render_xOffset = xOffset;
+
     if (Result::OKAY != Render2D->Init(
-            xOffset*aaValue, yOffset*aaValue,
-            xRes*aaValue, yRes*aaValue,
+            render_xOffset*aaValue, yOffset*aaValue,
+            render_xRes*aaValue, yRes*aaValue,
             totalXRes*aaValue, totalYRes*aaValue,
             renderTarget, upscaleMode))   // ← use renderTarget, not superAA->GetTargetID()
         return false;
 
     if (Result::OKAY != Render3D->Init(
-            xOffset*aaValue, yOffset*aaValue,
-            xRes*aaValue, yRes*aaValue,
+            render_xOffset*aaValue, yOffset*aaValue,
+            render_xRes*aaValue, yRes*aaValue,
             totalXRes*aaValue, totalYRes*aaValue,
             renderTarget))               // ← same here
         return false;
