@@ -86,10 +86,68 @@ Copy `supermodel_libretro.dll` to your RetroArch `cores/` directory.
 Requires the Android NDK. The build system checks `~/Android/Sdk/ndk/28.2.13676358` by default, or set `NDK_ROOT` to your NDK path.
 
 ```bash
-# arm64 (default)
+# arm64 (aarch64 - default)
 make platform=android -j$(nproc)
+
+# 32-bit ARM (armv7)
+make platform=android arch=arm -j$(nproc)
+
+# x86_64
+make platform=android arch=x86_64 -j$(nproc)
+
+# x86 (32-bit)
+make platform=android arch=x86 -j$(nproc)
+```
+
+Copy `supermodel_libretro.so` to your Android RetroArch cores directory.
+
+---
+
+### Raspberry Pi 4/5 (aarch64 / 64-bit)
+
+This build targets Raspberry Pi 4 and 5 with OpenGL ES 3.0 support using the aarch64 cross-compiler.
+
+#### 1. Install the Cross-Compilation Toolchain
+
+```bash
+sudo apt update
+sudo apt install aarch64-linux-gnu-gcc aarch64-linux-gnu-g++ zlib1g-dev:arm64
+```
+
+#### 2. Compile
+
+```bash
+# For Raspberry Pi 5 (Cortex-A76 optimization)
+make platform=rpi5 -j$(nproc)
+
+# For Raspberry Pi 4 (Cortex-A72 optimization)
+make platform=rpi4-64 -j$(nproc)
+
+# For generic aarch64 ARM (Cortex-A53, RPi 3B+ 64-bit if available)
+make platform=rpi64 -j$(nproc)
+```
+
+#### 3. Install on Raspberry Pi
+
+Copy the generated `supermodel_libretro.so` to your Raspberry Pi's RetroArch cores directory:
+
+```bash
+scp supermodel_libretro.so pi@raspberrypi:/home/pi/.config/retroarch/cores/
+```
+
+**Architecture Details:**
+- **rpi5**: Cortex-A76 CPU tuning (Raspberry Pi 5)
+- **rpi4-64**: Cortex-A72 CPU tuning (Raspberry Pi 4)
+- **rpi64**: Cortex-A53 CPU tuning (generic aarch64)
+
+**Platform Features:**
+- Excludes Legacy3D renderer (OpenGL ES 3.0 only)
+- Full GLES3 shading support via `glsym_es3`
+- Optimized for aarch64 architecture
 
 ---
 
 ## 🎮 Performance Notes
 For performance-heavy titles (e.g., Sega Rally 2 or Daytona USA 2), ensure you are running the core in Release mode. This core uses synchronous audio; if your CPU cannot maintain the full 57.53Hz emulation speed, you may experience audio stuttering.
+
+On Raspberry Pi, performance depends on the specific model and game. Older titles (e.g., Virtua Fighter 3) run well on Pi 4/5, while demanding titles may require resolution scaling adjustments via RetroArch core options.

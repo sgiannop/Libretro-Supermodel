@@ -154,9 +154,11 @@ bool CLibretroInputSystem::Poll()
         m_joyButtons[joy][6] = input_state_cb(joy, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L2);
         m_joyButtons[joy][7] = input_state_cb(joy, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R2);
 
-        // Start/Select buttons (8-9)
-        m_joyButtons[joy][8] = input_state_cb(joy, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_SELECT);
-        m_joyButtons[joy][9] = input_state_cb(joy, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START);
+        // Coin/Start buttons (8-9)
+        // Button 8: START button -> maps to InputStart1/InputStart2
+        // Button 9: SELECT button -> maps to InputCoin1/InputCoin2
+        m_joyButtons[joy][8] = input_state_cb(joy, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START);
+        m_joyButtons[joy][9] = input_state_cb(joy, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_SELECT);
         
         // **FIX: Map D-Pad AND Analog Stick to buttons 10-13**
         // This makes both the analog stick and D-Pad work for movement!

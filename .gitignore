@@ -7,7 +7,6 @@
 *.lib
 *.zip
 *.log
-*.info
 *.nv
 *.pdb
 *.exp

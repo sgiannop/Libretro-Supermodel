@@ -1,5 +1,5 @@
 # --- Android ---
-TARGET := $(TARGET_NAME)_libretro.so
+TARGET := $(TARGET_NAME)_libretro_android.so
 fpic := -fPIC
 SHARED := -shared
 PLATFORM_DEFINES += -DANDROID -D__LIBRETRO__ -DPSS_STYLE=1 -D_FILE_OFFSET_BITS=64
