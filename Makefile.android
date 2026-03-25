@@ -4,6 +4,7 @@ fpic := -fPIC
 SHARED := -shared
 PLATFORM_DEFINES += -DANDROID -D__LIBRETRO__ -DPSS_STYLE=1 -D_FILE_OFFSET_BITS=64
 PLATFORM_DEFINES += -D_POSIX_C_SOURCE=200809L -D_GNU_SOURCE
+PLATFORM_DEFINES += -DEGL_EGLEXT_PROTOTYPES
 LIBS += -lGLESv3 -llog -lz
 
 # Prepend Android shim headers to resolve <GL/glew.h> to our shim
@@ -15,13 +16,26 @@ ifeq ($(NDK_ROOT),)
     NDK_ROOT := $(shell ls -d ~/Android/Sdk/ndk/28.2.13676358 2>/dev/null)
 endif
 
+# Performance Flags from Mupen64Plus
+HAVE_NEON := 0
+ifeq ($(arch),arm)
+    HAVE_NEON := 1
+endif
+ifeq ($(arch),arm64)
+    HAVE_NEON := 1
+endif
+
+# LTO Control
+HAVE_LTCG ?= 1
+
 # If NDK is found, use its Clang toolchain
 ifneq ($(NDK_ROOT),)
     # Default to aarch64 (64-bit ARM) if no 'arch' is specified
-    # Supported: arm, arm64, x86, x86_64
     ifeq ($(arch),arm)
         ARCH_TRIPLE := arm-linux-androideabi
         CLANG_TRIPLE := armv7a-linux-androideabi24
+        PLATFORM_DEFINES += -march=armv7-a -mfloat-abi=softfp -mfpu=neon
+        PLATFORM_DEFINES += -mvectorize-with-neon-quad
     else ifeq ($(arch),x86)
         ARCH_TRIPLE := i686-linux-android
         CLANG_TRIPLE := i686-linux-android24
@@ -53,6 +67,10 @@ else
     LD  := $(CXX)
 endif
 
+ifeq ($(HAVE_NEON),1)
+    PLATFORM_DEFINES += -DHAVE_NEON -D__ARM_NEON__ -ftree-vectorize
+endif
+
 OBJOUT  = -o
 LINKOUT = -o
 LIBM    := -lm
@@ -65,8 +83,23 @@ ifeq ($(DEBUG), 1)
     CFLAGS   += -O0 -g -DDEBUG
     CXXFLAGS += -O0 -g -DDEBUG
 else
-    CFLAGS   += -O2 -DNDEBUG
-    CXXFLAGS += -O2 -DNDEBUG
+    CFLAGS   += -O3 -DNDEBUG
+    CXXFLAGS += -O3 -DNDEBUG
+    
+    # General Performance Optimizations
+    CFLAGS   += -ffast-math -funsafe-math-optimizations -fomit-frame-pointer
+    CXXFLAGS += -ffast-math -funsafe-math-optimizations -fomit-frame-pointer
+    
+    # Visibility Optimizations
+    CFLAGS   += -fvisibility=hidden
+    CXXFLAGS += -fvisibility=hidden -fvisibility-inlines-hidden
+    
+    # LTO (Link Time Optimization)
+    ifeq ($(HAVE_LTCG),1)
+        CFLAGS   += -flto
+        CXXFLAGS += -flto
+        LDFLAGS  += -flto
+    endif
 endif
 
 ifeq ($(EXTERNAL_ZLIB), 1)
@@ -79,3 +112,9 @@ SOURCES_CXX += $(CORE_DIR)/Src/OSD/Unix/FileSystemPath.cpp
 
 # Filter out Legacy3D sources as they are incompatible with GLES
 SOURCES_CXX := $(filter-out %/Legacy3D/Error.cpp %/Legacy3D/Legacy3D.cpp %/Legacy3D/Models.cpp %/Legacy3D/TextureRefs.cpp,$(SOURCES_CXX))
+
+# Fix for ppc_ops.c: ffast-math is incompatible with FENV_ACCESS pragma in NDK Clang
+# This strips the problematic flags ONLY for this specific file.
+# Fix: ppc_ops.c is #included in ppc.cpp, so we must strip flags from ppc.o
+$(CORE_DIR)/Src/CPU/PowerPC/ppc.o: CFLAGS := $(filter-out -ffast-math -funsafe-math-optimizations,$(CFLAGS))
+$(CORE_DIR)/Src/CPU/PowerPC/ppc.o: CXXFLAGS := $(filter-out -ffast-math -funsafe-math-optimizations,$(CXXFLAGS))

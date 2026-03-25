@@ -368,7 +368,11 @@ std::vector<std::string> RunGUI(const std::string& configPath, Util::Config::Nod
     if (!s_imguiInitialized) {
         IMGUI_CHECKVERSION();
         ImGui::CreateContext();
+#ifdef ANDROID
+        ImGui_ImplOpenGL3_Init("#version 300 es");
+#else
         ImGui_ImplOpenGL3_Init("#version 410");
+#endif
         ImGui::GetIO().IniFilename = nullptr;
         ImGui::StyleColorsDark();
         s_imguiInitialized = true;
