@@ -1,7 +1,7 @@
 #include "R3DFrameBuffers.h"
 #include <string>
 
-#ifdef ANDROID
+#if defined(ANDROID) || defined(CORE_GLES)
 static const char* kGlslVersion = "#version 300 es\nprecision highp float;\n";
 #else
 static const char* kGlslVersion = "#version 410 core\n";

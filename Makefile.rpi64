@@ -1,0 +1,41 @@
+# --- Raspberry Pi 4 / 5 (AArch64 / 64-bit) ---
+CC  = aarch64-linux-gnu-gcc
+CXX = aarch64-linux-gnu-g++
+LD  = aarch64-linux-gnu-g++
+
+TARGET := $(TARGET_NAME)_libretro.so
+fpic   := -fPIC
+SHARED := -shared -Wl,--version-script=$(CORE_DIR)/link.T -Wl,-no-undefined
+
+# 1. ARCHITECTURE & FEATURE FLAGS
+PLATFORM_DEFINES += -DARM -D__aarch64__ -DLSB_FIRST -DGL_GLEXT_PROTOTYPES
+PLATFORM_DEFINES += -fomit-frame-pointer -ffast-math -funsafe-math-optimizations
+# ADDED: -D__glext_h_ and -D__GLEXT_H_ to prevent system header redeclaration
+PLATFORM_DEFINES += -DGLES -Dgles -DHAVE_OPENGLES=1 -DHAVE_OPENGLES3=1 -DCORE_GLES -D__glext_h_ -D__GLEXT_H_
+
+# 2. CPU TUNING
+ifeq ($(platform), rpi5)
+    PLATFORM_DEFINES += -mcpu=cortex-a76
+else ifeq ($(platform), rpi4-64)
+    PLATFORM_DEFINES += -mcpu=cortex-a72
+else ifeq ($(platform), rpi64)
+    PLATFORM_DEFINES += -mcpu=cortex-a53
+endif
+
+# 3. LIBRARY & PATHS
+LDFLAGS += -L/usr/lib/aarch64-linux-gnu
+LIBS := -lGLESv2 -lz -lm
+
+# 4. SOURCE OVERRIDES
+SOURCES_CXX += $(CORE_DIR)/Src/OSD/Unix/FileSystemPath.cpp
+CXXFLAGS += -std=c++17
+
+# Use GLES3 glsym variant instead of desktop GL
+SOURCES_C := $(filter-out %/glsym/glsym_gl.c,$(SOURCES_C))
+SOURCES_C += $(LIBRETRO_COMM_DIR)/glsym/glsym_es3.c
+
+# 5. STRIP LEGACY DESKTOP GL FILES
+SOURCES_CXX := $(filter-out $(CORE_DIR)/Src/Graphics/Legacy3D/Legacy3D.cpp,$(SOURCES_CXX))
+SOURCES_CXX := $(filter-out $(CORE_DIR)/Src/Graphics/Legacy3D/Models.cpp,$(SOURCES_CXX))
+SOURCES_CXX := $(filter-out $(CORE_DIR)/Src/Graphics/Legacy3D/TextureRefs.cpp,$(SOURCES_CXX))
+SOURCES_CXX := $(filter-out $(CORE_DIR)/Src/Graphics/Legacy3D/Error.cpp,$(SOURCES_CXX))

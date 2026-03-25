@@ -62,7 +62,7 @@ void R3DShader::Start()
 
 bool R3DShader::LoadShader(const char* vertexShader, const char* fragmentShader)
 {
-#ifdef ANDROID
+#if defined(ANDROID) || defined(CORE_GLES)
 	// Geometry shaders are not supported in GLES 3.0
 	bool quads = false;
 	const char* versionStr = "#version 300 es\nprecision highp float;\nprecision highp usampler2D;\nprecision highp isampler2D;\n#define ANDROID 1\n";
@@ -94,6 +94,7 @@ bool R3DShader::LoadShader(const char* vertexShader, const char* fragmentShader)
 	glCompileShader(m_vertexShader);
 	glCompileShader(m_fragmentShader);
 
+#if !defined(ANDROID) && !defined(CORE_GLES)
 	if (quads) {
 		m_geoShader = glCreateShader(GL_GEOMETRY_SHADER);
 		glShaderSource(m_geoShader, 1, (const GLchar **)&gShader, nullptr);
@@ -101,6 +102,7 @@ bool R3DShader::LoadShader(const char* vertexShader, const char* fragmentShader)
 		glAttachShader(m_shaderProgram, m_geoShader);
 		PrintShaderResult(m_geoShader);
 	}
+#endif
 
 	PrintShaderResult(m_vertexShader);
 	PrintShaderResult(m_fragmentShader);

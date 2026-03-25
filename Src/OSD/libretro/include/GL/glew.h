@@ -41,8 +41,28 @@
 #undef DrawText
 #endif
 
-#ifndef ANDROID
+#if !defined(ANDROID) && !defined(CORE_GLES)
 #include <GL/glu.h>
+#endif
+
+#if defined(CORE_GLES)
+/* Desktop GL → GLES3 compatibility shims for RPi/GLES builds */
+#ifndef GL_LINES_ADJACENCY
+#  ifdef GL_LINES_ADJACENCY_EXT
+#    define GL_LINES_ADJACENCY GL_LINES_ADJACENCY_EXT
+#  else
+#    define GL_LINES_ADJACENCY 0x000A
+#  endif
+#endif
+#ifndef GL_BGRA
+#  ifdef GL_BGRA_EXT
+#    define GL_BGRA GL_BGRA_EXT
+#  else
+#    define GL_BGRA GL_RGBA
+#  endif
+#endif
+#define glClearDepth(d)    glClearDepthf((GLfloat)(d))
+#define glDrawBuffer(buf)  (void)(buf)   /* GLES: default FBO always draws to back buffer */
 #endif
 
 /* GLEW compatibility stubs — replaced by rglgen_resolve_symbols() at init */

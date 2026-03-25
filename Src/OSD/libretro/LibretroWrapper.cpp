@@ -8,7 +8,7 @@
 #include <memory>
 #include <vector>
 #include <GL/glew.h>
-#ifndef ANDROID
+#if !defined(ANDROID) && !defined(CORE_GLES)
 #include <glsym/rglgen.h>
 #endif
 #include <libretro.h>
@@ -26,7 +26,9 @@
 #include "OSD/FileSystemPath.h"
 #include "GameLoader.h"
 #include "Debugger/SupermodelDebugger.h"
+#if !defined(ANDROID) && !defined(CORE_GLES)
 #include "Graphics/Legacy3D/Legacy3D.h"
+#endif
 #include "Graphics/New3D/New3D.h"
 #include "Model3/IEmulator.h"
 #include "Model3/Model3.h"
@@ -379,7 +381,7 @@ bool LibretroWrapper::InitRenderers()
 
     Render2D = new CRender2D(s_runtime_config);
     Render3D =
-#ifdef ANDROID
+#if defined(ANDROID) || defined(CORE_GLES)
         (IRender3D*)new New3D::CNew3D(s_runtime_config, Model3->GetGame().name);
 #else
         s_runtime_config["New3DEngine"].ValueAs<bool>()
@@ -810,7 +812,7 @@ void LibretroWrapper::InitGL()
     static bool glsym_done = false;
     if (!glsym_done)
     {
-#ifndef ANDROID
+#if !defined(ANDROID) && !defined(CORE_GLES)
         rglgen_resolve_symbols(hw_render.get_proc_address);
 #endif
         glsym_done = true;
@@ -836,6 +838,13 @@ GLuint LibretroWrapper::getSuperModelFBO() const
 
 void LibretroWrapper::SetWidescreen(bool enabled)
 {
+    // Check if the value actually changed
+    bool current_value = s_runtime_config["WideScreen"].ValueAsDefault<bool>(false);
+    if (current_value == enabled) {
+        // No change, skip reinitialization
+        return;
+    }
+
     try {
         s_runtime_config.Get("WideScreen").SetValue(enabled);
     }
@@ -846,8 +855,9 @@ void LibretroWrapper::SetWidescreen(bool enabled)
     // Only reinit renderers if they already exist (i.e. GL context is live).
     // On initial load, InitRenderers() will be called later by context_reset()
     // and will pick up the correct WideScreen value from s_runtime_config.
-    if (Render2D == nullptr)
+    if (Render2D == nullptr) {
         return;
+    }
 
     if (Model3) Model3->PauseThreads();
     InitRenderers();

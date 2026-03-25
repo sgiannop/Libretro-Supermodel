@@ -35,6 +35,12 @@ else ifneq (,$(findstring osx,$(platform)))
     include Makefile.osx
 else ifneq (,$(findstring android,$(platform)))
     include Makefile.android
+else ifneq (,$(findstring rpi5,$(platform)))
+    include Makefile.rpi64
+else ifneq (,$(findstring rpi4-64,$(platform)))
+    include Makefile.rpi64
+else ifneq (,$(findstring rpi64,$(platform)))
+    include Makefile.rpi64
 else
     include Makefile.unix
 endif

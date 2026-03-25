@@ -156,7 +156,7 @@ void context_destroy(void)
 // --- Game Loading ---
 bool retro_load_game(const struct retro_game_info *info)
 {
-#ifdef ANDROID
+#if defined(ANDROID) || defined(HAVE_GLES)
    hw_render.context_type = RETRO_HW_CONTEXT_OPENGLES3;
 #else
    hw_render.context_type = RETRO_HW_CONTEXT_OPENGL; 
