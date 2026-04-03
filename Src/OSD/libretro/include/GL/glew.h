@@ -41,7 +41,7 @@
 #undef DrawText
 #endif
 
-#if !defined(ANDROID) && !defined(CORE_GLES)
+#if !defined(ANDROID) && !defined(CORE_GLES) && !defined(__APPLE__)
 #include <GL/glu.h>
 #endif
 

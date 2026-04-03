@@ -1,13 +1,111 @@
+# --- macOS / Darwin ---
 ifeq ($(platform), osx)
+    # Target architecture
+    # Can be: x86_64, arm64, or universal (both)
+    MACOS_ARCH ?= universal
+
+    # Deployment target (minimum macOS version)
+    # Note: 10.15 (Catalina) required for std::filesystem support
+    MACOS_VERSION ?= 10.15
+
+    # SDK path (optional, auto-detect if not set)
+    ifeq ($(MACOSX_SDK),)
+        MACOSX_SDK := $(shell xcrun --sdk macosx --show-sdk-path 2>/dev/null)
+    endif
+
+    # Core output target
     TARGET := $(TARGET_NAME)_libretro.dylib
     fpic := -fPIC
     SHARED := -dynamiclib
-    ifeq ($(shell uname -p),powerpc)
-        ENDIANNESS_DEFINES += -DMSB_FIRST
-    endif
-    OSXVER = `sw_vers -productVersion | cut -d. -f 2`
-    fpic += -mmacosx-version-min=10.1
 
+    # --- Toolchain Detection ---
+    # For native macOS builds
+    ifeq ($(shell uname -s),Darwin)
+        CC  ?= clang
+        CXX ?= clang++
+        CLANG_CMD := clang
+    else
+        # Cross-compile from Linux
+        CC  ?= clang
+        CXX ?= clang++
+        CLANG_CMD := clang
+    endif
+
+    LD  := $(CXX)
+
+    # --- Architecture Flags ---
+    ifeq ($(MACOS_ARCH), universal)
+        # Build universal binary (x86_64 + arm64)
+        ARCH_FLAGS := -arch x86_64 -arch arm64
+    else ifeq ($(MACOS_ARCH), arm64)
+        # ARM64 (Apple Silicon)
+        ARCH_FLAGS := -arch arm64
+    else
+        # Default to x86_64 (Intel)
+        ARCH_FLAGS := -arch x86_64
+    endif
+
+    # --- Core macOS Flags ---
+    PLATFORM_DEFINES := $(ARCH_FLAGS)
+    PLATFORM_DEFINES += -mmacosx-version-min=$(MACOS_VERSION)
+    PLATFORM_DEFINES += -fPIC
+    PLATFORM_DEFINES += -DLSB_FIRST
+
+    # SDK flag (if available)
+    ifneq ($(MACOSX_SDK),)
+        PLATFORM_DEFINES += -isysroot $(MACOSX_SDK)
+        # Add SDK include paths for osxcross
+        INCFLAGS += -I$(MACOSX_SDK)/usr/include
+        INCFLAGS += -I$(MACOSX_SDK)/System/Library/Frameworks/OpenGL.framework/Headers
+    endif
+
+    # --- Libraries ---
+    LIBS := -framework OpenGL -framework CoreFoundation -lz
+
+    # --- FileSystem Path Implementation ---
+    SOURCES_CXX += $(CORE_DIR)/Src/OSD/Unix/FileSystemPath.cpp
+    
+    # macOS doesn't support Legacy3D (old fixed-pipeline OpenGL)
+    # Modern macOS requires at least OpenGL 3.2 which doesn't have fixed-pipeline functions
+    # We use only New3D renderer instead, so exclude Legacy3D sources
+    EXCLUDE_LEGACY3D := 1
+    
+    # Remove Legacy3D sources before including Makefile.common
+    # This will be done after Makefile.common includes these files
+
+    # --- Compiler Flags ---
+    CXXFLAGS += -std=c++17
+    OBJOUT  := -o
+    LINKOUT := -o
+    LIBM    := -lm
+
+    # --- Optimization Flags ---
+    ifeq ($(DEBUG), 1)
+        CFLAGS   += -O0 -g -DDEBUG
+        CXXFLAGS += -O0 -g -DDEBUG
+    else
+        CFLAGS   += -O2 -DNDEBUG
+        CXXFLAGS += -O2 -DNDEBUG
+    endif
+
+    ifeq ($(EXTERNAL_ZLIB), 1)
+        CFLAGS   += -DHAVE_EXTERNAL_ZLIB
+        CXXFLAGS += -DHAVE_EXTERNAL_ZLIB
+    endif
+
+    # --- Link Flags ---
+    LDFLAGS := $(ARCH_FLAGS)
+    ifneq ($(MACOSX_SDK),)
+        LDFLAGS += -isysroot $(MACOSX_SDK)
+    endif
+
+    # Static C++ stdlib for better compatibility
+    LDFLAGS += -static-libstdc++
+    
+    # Filter out Legacy3D sources (macOS doesn't support old fixed-pipeline OpenGL)
+    SOURCES_CXX := $(filter-out %/Legacy3D/Error.cpp %/Legacy3D/Legacy3D.cpp %/Legacy3D/Models.cpp %/Legacy3D/TextureRefs.cpp, $(SOURCES_CXX))
+
+# --- iOS (separate section, not for macOS) ---
 else ifneq (,$(findstring ios,$(platform)))
     TARGET := $(TARGET_NAME)_libretro_ios.dylib
     fpic := -fPIC
@@ -28,9 +126,10 @@ else ifeq ($(platform), theos_ios)
     LIBRARY_NAME = $(TARGET_NAME)_libretro_ios
 endif
 
+# --- Default toolchain (safety defaults) ---
 CC  ?= cc
 CXX ?= c++
 LD  ?= $(CXX)
-OBJOUT  = -o
-LINKOUT = -o
-LIBM    := -lm
+OBJOUT  ?= -o
+LINKOUT ?= -o
+LIBM    ?= -lm

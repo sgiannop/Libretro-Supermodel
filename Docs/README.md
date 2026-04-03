@@ -81,6 +81,83 @@ Copy `supermodel_libretro.dll` to your RetroArch `cores/` directory.
 
 ---
 
+### macOS (Intel & Apple Silicon)
+
+This core now supports both Intel Macs (x86_64) and Apple Silicon Macs (arm64 M1/M2/M3+) through universal binary cross-compilation using osxcross.
+
+#### Option A: Native macOS Build
+
+If building on a macOS system with Xcode installed:
+
+```bash
+# Install dependencies via Homebrew
+brew install zlib glew
+
+# Compile
+make platform=osx MACOS_ARCH=universal -j$(sysctl -n hw.ncpu)
+
+# Install
+cp supermodel_libretro.dylib ~/.config/retroarch/cores/
+```
+
+#### Option B: Cross-Compilation from Linux (Ubuntu/Debian)
+
+This is the recommended approach for CI/CD and reproducible builds.
+
+1. **Install osxcross toolchain**:
+   ```bash
+   # Clone osxcross repo
+   git clone https://github.com/tpoechtrager/osxcross ~/dev/osxcross
+   cd ~/dev/osxcross
+   
+   # Download macOS SDK (requires ~52MB, includes MacOSX12.0.sdk)
+   # See osxcross documentation for SDK acquisition
+   
+   # Build toolchain
+   ./build.sh
+   ```
+
+2. **Compile**:
+   ```bash
+   export OSXCROSS_ROOT=~/dev/osxcross
+   export PATH="$OSXCROSS_ROOT/target/bin:$PATH"
+   
+   # Universal binary (x86_64 + arm64)
+   make platform=osx MACOS_ARCH=universal \
+     CC=o64-clang CXX=o64-clang++ LD=o64-clang++ -j$(nproc)
+   
+   # Or Intel only
+   make platform=osx MACOS_ARCH=x86_64 \
+     CC=o64-clang CXX=o64-clang++ LD=o64-clang++ -j$(nproc)
+   
+   # Or Apple Silicon only
+   make platform=osx MACOS_ARCH=arm64 \
+     CC=o64-clang CXX=o64-clang++ LD=o64-clang++ -j$(nproc)
+   ```
+
+3. **Transfer to macOS**:
+   ```bash
+   # Copy the .dylib to a macOS system
+   scp supermodel_libretro.dylib user@mac:~/Downloads/
+   
+   # On the Mac, install to RetroArch
+   cp ~/Downloads/supermodel_libretro.dylib \
+     ~/.config/retroarch/cores/
+   ```
+
+**macOS Build Details:**
+- **Deployment Target:** macOS 10.15 (Catalina) and newer
+- **Architecture:** Universal binary (both x86_64 and arm64) for maximum compatibility
+- **Renderer:** Modern OpenGL 3.2+ (no legacy fixed-pipeline)
+- **Build Time:** ~90 seconds on 4 cores
+
+**Note:** If building on macOS fails with GL header errors, ensure Xcode Command Line Tools are installed:
+```bash
+xcode-select --install
+```
+
+---
+
 ### Android
 
 Requires the Android NDK. The build system checks `~/Android/Sdk/ndk/28.2.13676358` by default, or set `NDK_ROOT` to your NDK path.

@@ -381,7 +381,7 @@ bool LibretroWrapper::InitRenderers()
 
     Render2D = new CRender2D(s_runtime_config);
     Render3D =
-#if defined(ANDROID) || defined(CORE_GLES)
+#if defined(ANDROID) || defined(CORE_GLES) || defined(__APPLE__)
         (IRender3D*)new New3D::CNew3D(s_runtime_config, Model3->GetGame().name);
 #else
         s_runtime_config["New3DEngine"].ValueAs<bool>()
