@@ -116,5 +116,7 @@ SOURCES_CXX := $(filter-out %/Legacy3D/Error.cpp %/Legacy3D/Legacy3D.cpp %/Legac
 # Fix for ppc_ops.c: ffast-math is incompatible with FENV_ACCESS pragma in NDK Clang
 # This strips the problematic flags ONLY for this specific file.
 # Fix: ppc_ops.c is #included in ppc.cpp, so we must strip flags from ppc.o
-$(CORE_DIR)/Src/CPU/PowerPC/ppc.o: CFLAGS := $(filter-out -ffast-math -funsafe-math-optimizations,$(CFLAGS))
-$(CORE_DIR)/Src/CPU/PowerPC/ppc.o: CXXFLAGS := $(filter-out -ffast-math -funsafe-math-optimizations,$(CXXFLAGS))
+# Additional: Force PIC-compatible code generation to fix ARM64 relocation errors in DEBUG mode
+# Must preserve $(fpic) to ensure -fPIC is applied
+$(CORE_DIR)/Src/CPU/PowerPC/ppc.o: CFLAGS := $(filter-out -ffast-math -funsafe-math-optimizations,$(CFLAGS)) $(fpic)
+$(CORE_DIR)/Src/CPU/PowerPC/ppc.o: CXXFLAGS := $(filter-out -ffast-math -funsafe-math-optimizations,$(CXXFLAGS)) $(fpic)
