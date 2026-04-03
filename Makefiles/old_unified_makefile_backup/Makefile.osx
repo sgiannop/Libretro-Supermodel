@@ -18,17 +18,36 @@ ifeq ($(platform), osx)
     fpic := -fPIC
     SHARED := -dynamiclib
 
-    # --- Toolchain Detection ---
+    # --- Toolchain Detection & Auto-Setup ---
     # For native macOS builds
     ifeq ($(shell uname -s),Darwin)
         CC  ?= clang
         CXX ?= clang++
         CLANG_CMD := clang
     else
-        # Cross-compile from Linux
-        CC  ?= clang
-        CXX ?= clang++
-        CLANG_CMD := clang
+        # Cross-compile from Linux using osxcross
+        # Auto-detect osxcross installation at /opt/osxcross
+        OSXCROSS_ROOT ?= /opt/osxcross
+        
+        ifeq ($(shell test -f $(OSXCROSS_ROOT)/target/bin/o64-clang && echo found),found)
+            # osxcross found at $(OSXCROSS_ROOT)
+            # Override CC/CXX to use osxcross (prevents system cc from being used)
+            override CC := $(OSXCROSS_ROOT)/target/bin/o64-clang
+            override CXX := $(OSXCROSS_ROOT)/target/bin/o64-clang++
+            CLANG_CMD := $(OSXCROSS_ROOT)/target/bin/o64-clang
+            override LD := $(OSXCROSS_ROOT)/target/bin/o64-clang++
+            
+            # Ensure osxcross tools are in PATH for the build process
+            export PATH := $(OSXCROSS_ROOT)/target/bin:$(PATH)
+            
+            # Auto-set MACOSX_SDK if not already set
+            ifeq ($(MACOSX_SDK),)
+                MACOSX_SDK := $(OSXCROSS_ROOT)/target/SDK/MacOSX12.0.sdk
+            endif
+        else
+            # osxcross not found - give helpful error message
+            $(error osxcross not found at $(OSXCROSS_ROOT). Please install osxcross there, or override with: make platform=osx OSXCROSS_ROOT=/path/to/osxcross)
+        endif
     endif
 
     LD  := $(CXX)
@@ -63,7 +82,7 @@ ifeq ($(platform), osx)
     LIBS := -framework OpenGL -framework CoreFoundation -lz
 
     # --- FileSystem Path Implementation ---
-    SOURCES_CXX += $(CORE_DIR)/Src/OSD/Unix/FileSystemPath.cpp
+    SOURCES_CXX += $(CORE_DIR)/Src/OSD/OSX/FileSystemPath.cpp
     
     # macOS doesn't support Legacy3D (old fixed-pipeline OpenGL)
     # Modern macOS requires at least OpenGL 3.2 which doesn't have fixed-pipeline functions
