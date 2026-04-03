@@ -20,6 +20,11 @@ static struct retro_core_option_v2_category option_cats[] = {
       "Input",
       "Configure input and control settings."
    },
+   {
+      "cpu",
+      "CPU",
+      "Configure CPU performance and emulation settings."
+   },
    { NULL, NULL, NULL },
 };
 
@@ -162,6 +167,26 @@ static struct retro_core_option_v2_definition option_defs[] = {
       },
       "100"
    },
+   // CPU
+   {
+      "supermodel_ppc_frequency",
+      "PowerPC CPU Frequency",
+      NULL,
+      "Adjust PowerPC CPU frequency to trade cycle accuracy for performance on low-end hardware. 'Auto' uses defaults based on game stepping.",
+      NULL,
+      "cpu",
+      {
+         { "auto", "Auto (Default)" },
+         { "50",   "50 MHz" },
+         { "66",   "66 MHz" },
+         { "100",  "100 MHz" },
+         { "133",  "133 MHz" },
+         { "166",  "166 MHz" },
+         { "200",  "200 MHz" },
+         { NULL, NULL },
+      },
+      "auto"
+   },
    { NULL, NULL, NULL, NULL, NULL, NULL, {{0}}, NULL },
 };
 
@@ -200,6 +225,25 @@ void update_core_options(void)
    g_options.service_on_sticks = strcmp(option_get("supermodel_service_buttons", "shoulders"), "sticks") == 0;
    g_options.force_feedback = strcmp(option_get("supermodel_force_feedback", "disabled"), "enabled") == 0;
    g_options.analog_sensitivity = atoi(option_get("supermodel_analog_sensitivity", "100"));
+
+   // Parse PowerPC frequency option
+   const char* ppc_freq = option_get("supermodel_ppc_frequency", "auto");
+   if (strcmp(ppc_freq, "auto") == 0)
+      g_options.ppc_frequency = 0;  // 0 = auto (use game.stepping defaults)
+   else if (strcmp(ppc_freq, "50") == 0)
+      g_options.ppc_frequency = 50;
+   else if (strcmp(ppc_freq, "66") == 0)
+      g_options.ppc_frequency = 66;
+   else if (strcmp(ppc_freq, "100") == 0)
+      g_options.ppc_frequency = 100;
+   else if (strcmp(ppc_freq, "133") == 0)
+      g_options.ppc_frequency = 133;
+   else if (strcmp(ppc_freq, "166") == 0)
+      g_options.ppc_frequency = 166;
+   else if (strcmp(ppc_freq, "200") == 0)
+      g_options.ppc_frequency = 200;
+   else
+      g_options.ppc_frequency = 0;  // Default to auto on unrecognized value
 
    // if (log_cb)
    // {

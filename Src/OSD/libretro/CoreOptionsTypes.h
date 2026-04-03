@@ -11,6 +11,7 @@ struct CoreOptions {
    int sound_volume;
    int music_volume;
    bool service_on_sticks;
+   int ppc_frequency;
 };
 
 extern CoreOptions g_options;
