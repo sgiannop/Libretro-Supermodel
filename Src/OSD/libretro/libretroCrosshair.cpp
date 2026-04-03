@@ -1,6 +1,7 @@
 #include "libretroCrosshair.h"
 #include "Supermodel.h"
 #include "Graphics/New3D/New3D.h"
+#include "Graphics/GLSLVersion.h"
 #include "OSD/FileSystemPath.h"
 #include <GL/glew.h>
 #include <vector>
@@ -94,11 +95,7 @@ Result CCrosshair::Init()
 
   BuildCrosshairVertices();
 
-#ifdef ANDROID
-  const std::string versionStr = "#version 300 es\nprecision highp float;\n";
-#else
-  const std::string versionStr = "#version 410 core\n";
-#endif
+  std::string versionStr = Graphics::GLSLVersion::Get3D();
 
   std::string vShader = versionStr + R"glsl(
     uniform mat4 mvp;

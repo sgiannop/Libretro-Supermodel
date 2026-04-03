@@ -12,6 +12,7 @@
 #include "../../Pkgs/imgui/imgui_impl_opengl3.h"
 #include "../../Util/NewConfig.h"
 #include "../../Util/ConfigBuilders.h"
+#include "../../Graphics/GLSLVersion.h"
 #include "../Src/Inputs/Inputs.h"
 #include "LibretroConfigProvider.h"
 #include "LibretroWrapper.h"
@@ -368,11 +369,7 @@ std::vector<std::string> RunGUI(const std::string& configPath, Util::Config::Nod
     if (!s_imguiInitialized) {
         IMGUI_CHECKVERSION();
         ImGui::CreateContext();
-#ifdef ANDROID
-        ImGui_ImplOpenGL3_Init("#version 300 es");
-#else
-        ImGui_ImplOpenGL3_Init("#version 410");
-#endif
+        ImGui_ImplOpenGL3_Init(Graphics::GLSLVersion::GetImGui().c_str());
         ImGui::GetIO().IniFilename = nullptr;
         ImGui::StyleColorsDark();
         s_imguiInitialized = true;

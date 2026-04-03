@@ -1,12 +1,7 @@
 #include "R3DScrollFog.h"
 #include "Graphics/Shader.h"
+#include "Graphics/GLSLVersion.h"
 #include <string>
-
-#ifdef ANDROID
-static const char* kScrollFogVersion = "#version 300 es\nprecision highp float;\n";
-#else
-static const char* kScrollFogVersion = "#version 410 core\n";
-#endif
 
 namespace New3D {
 
@@ -133,8 +128,8 @@ void main()
 
 	void R3DScrollFog::AllocResources()
 	{
-		std::string vs = std::string(kScrollFogVersion) + vertexShaderFog;
-		std::string fs = std::string(kScrollFogVersion) + fragmentShaderFog;
+		std::string vs = Graphics::GLSLVersion::Get3D() + vertexShaderFog;
+		std::string fs = Graphics::GLSLVersion::Get3D() + fragmentShaderFog;
 		auto success = LoadShaderProgram(&m_shaderProgram, &m_vertexShader, &m_fragmentShader, "", "", vs.c_str(), fs.c_str());
 
 		m_locFogColour		= glGetUniformLocation(m_shaderProgram, "fogColour");

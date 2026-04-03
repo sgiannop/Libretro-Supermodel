@@ -1,11 +1,6 @@
 #include "R3DFrameBuffers.h"
 #include <string>
-
-#if defined(ANDROID) || defined(CORE_GLES)
-static const char* kGlslVersion = "#version 300 es\nprecision highp float;\n";
-#else
-static const char* kGlslVersion = "#version 410 core\n";
-#endif
+#include "../GLSLVersion.h"
 
 namespace New3D {
 
@@ -227,8 +222,8 @@ void R3DFrameBuffers::AllocShaderBase()
 
 	)glsl";
 
-	std::string vs = std::string(kGlslVersion) + vertexShader;
-	std::string fs = std::string(kGlslVersion) + fragmentShader;
+	std::string vs = Graphics::GLSLVersion::Get3D() + vertexShader;
+	std::string fs = Graphics::GLSLVersion::Get3D() + fragmentShader;
 	m_shaderBase.LoadShaders(vs.c_str(), fs.c_str());
 	m_shaderBase.uniformLoc[0] = m_shaderBase.GetUniformLocation("tex1");
 }
@@ -278,8 +273,8 @@ void R3DFrameBuffers::AllocShaderTrans()
 
 	)glsl";
 
-	std::string vs = std::string(kGlslVersion) + vertexShader;
-	std::string fs = std::string(kGlslVersion) + fragmentShader;
+	std::string vs = Graphics::GLSLVersion::Get3D() + vertexShader;
+	std::string fs = Graphics::GLSLVersion::Get3D() + fragmentShader;
 	m_shaderTrans.LoadShaders(vs.c_str(), fs.c_str());
 
 	m_shaderTrans.uniformLoc[0] = m_shaderTrans.GetUniformLocation("tex1");

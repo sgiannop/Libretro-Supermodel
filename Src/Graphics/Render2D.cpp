@@ -290,6 +290,7 @@
 #include "Supermodel.h"
 #include "Shader.h"
 #include "Shaders2D.h" // fragment and vertex shaders
+#include "GLSLVersion.h"
 
 /******************************************************************************
  Frame Display Functions
@@ -433,12 +434,9 @@ Result CRender2D::Init(unsigned xOffset, unsigned yOffset, unsigned xRes, unsign
 
 	std::string um = "#define UPSCALEMODE " + std::to_string((int)m_upscaleMode) + '\n';
 
-#ifdef ANDROID
-	const char* version = "#version 300 es\n precision highp float;\n";
-#else
-	const char* version = "#version 410 core\n";
-#endif
-	m_drawShader.LoadShaders((std::string(version) + s_vertexShader).c_str(), (std::string(version) + um + s_fragmentShader).c_str());
+	std::string version = Graphics::GLSLVersion::Get2D();
+
+	m_drawShader.LoadShaders((version + s_vertexShader).c_str(), (version + um + s_fragmentShader).c_str());
 	m_drawShader.GetUniformLocationMap("tex1");
 	// init uniform memory
 	m_drawShader.EnableShader();

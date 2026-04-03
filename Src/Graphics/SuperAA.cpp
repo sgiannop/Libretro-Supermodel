@@ -1,5 +1,6 @@
 #include "SuperAA.h"
 #include <string>
+#include "GLSLVersion.h"
 
 SuperAA::SuperAA(int aaValue, CRTcolor CRTcolors) :
 	m_aa(aaValue),
@@ -25,13 +26,8 @@ SuperAA::SuperAA(int aaValue, CRTcolor CRTcolors) :
 			)glsl";
 
 
-#ifdef ANDROID
-		static const std::string fragmentShaderVersion = "#version 300 es\nprecision highp float;\n";
-		static const std::string vertexShaderVersion   = "#version 300 es\nprecision highp float;\n";
-#else
-		static const std::string fragmentShaderVersion = "#version 410 core\n";
-		static const std::string vertexShaderVersion   = "#version 410 core\n";
-#endif
+		std::string vertexShaderVersion   = Graphics::GLSLVersion::GetPostProcess();
+		std::string fragmentShaderVersion = Graphics::GLSLVersion::GetPostProcess();
 
 		std::string aaString = "const int aa = ";
 		aaString += std::to_string(m_aa);

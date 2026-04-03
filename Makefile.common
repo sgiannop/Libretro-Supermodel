@@ -104,6 +104,7 @@ SOURCES_CXX +=  $(CORE_DIR)/Src/Graphics/Legacy3D/Error.cpp
 
 SOURCES_CXX +=   \
 					  $(CORE_DIR)/Src/Graphics/Shader.cpp \
+					  $(CORE_DIR)/Src/Graphics/GLSLVersion.cpp \
 					  $(CORE_DIR)/Src/Model3/Real3D.cpp
 
 # Legacy3D - commented out for now

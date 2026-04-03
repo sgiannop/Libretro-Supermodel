@@ -2,6 +2,7 @@
 #include "R3DShaderQuads.h"
 #include "R3DShaderTriangles.h"
 #include "R3DShaderCommon.h"
+#include "../GLSLVersion.h"
 
 // having 2 sets of shaders to maintain is really less than ideal
 // but hopefully not too many breaking changes at this point
@@ -65,11 +66,11 @@ bool R3DShader::LoadShader(const char* vertexShader, const char* fragmentShader)
 #if defined(ANDROID) || defined(CORE_GLES)
 	// Geometry shaders are not supported in GLES 3.0
 	bool quads = false;
-	const char* versionStr = "#version 300 es\nprecision highp float;\nprecision highp usampler2D;\nprecision highp isampler2D;\n#define ANDROID 1\n";
 #else
 	bool quads = m_config["QuadRendering"].ValueAs<bool>();
-	const char* versionStr = quads ? "#version 450 core\n" : "#version 410 core\n";
 #endif
+
+	std::string versionStr = Graphics::GLSLVersion::GetR3D(quads);
 
 	const char* vShader = vertexShaderR3D;
 	const char* gShader = "";
@@ -85,8 +86,8 @@ bool R3DShader::LoadShader(const char* vertexShader, const char* fragmentShader)
 	m_vertexShader		= glCreateShader(GL_VERTEX_SHADER);
 	m_fragmentShader	= glCreateShader(GL_FRAGMENT_SHADER);
 
-	const char* vSources[] = { versionStr, vShader };
-	const char* fSources[] = { versionStr, fShader, fragmentShaderR3DCommon };
+	const char* vSources[] = { versionStr.c_str(), vShader };
+	const char* fSources[] = { versionStr.c_str(), fShader, fragmentShaderR3DCommon };
 
 	glShaderSource(m_vertexShader, 2, vSources, nullptr);
 	glShaderSource(m_fragmentShader, 3, fSources, nullptr);
