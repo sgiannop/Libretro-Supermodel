@@ -2059,21 +2059,19 @@ ThreadError:
 
 static unsigned GetCPUClockFrequencyInHz(const Game &game, Util::Config::Node &config)
 {
+  // Core option overrides config file and stepping defaults
+  if (g_options.ppc_frequency > 0)
+    return (unsigned)g_options.ppc_frequency * 1000000;
+
   unsigned mhz = config["PowerPCFrequency"].ValueAsDefault<unsigned>(0);
   if (!mhz)
   {
     if (game.stepping == "1.0")
-    {
       mhz = 66;
-    }
     else if (game.stepping == "1.5")
-    {
       mhz = 100;
-    }
     else  // 2.x
-    {
       mhz = 166;
-    }
   }
   return mhz * 1000000;
 }
