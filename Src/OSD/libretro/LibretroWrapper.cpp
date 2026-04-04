@@ -753,7 +753,8 @@ int LibretroWrapper::Emulate(const char* romPath)
         Util::Config::FromINIFile(&fileConfig, s_configFilePath);
         Util::Config::MergeINISections(&fileConfigWithDefaults, LibretroConfigProvider::DefaultConfig(s_gameXMLFilePath), fileConfig); 
         Util::Config::MergeINISections(&config3, fileConfigWithDefaults, cmd_line.config);    
-        
+
+	config3.Set("GameXMLFile", s_gameXMLFilePath);
         if (rom_specified || cmd_line.print_games)
         {
             std::string xml_file = config3["GameXMLFile"].ValueAs<std::string>();
