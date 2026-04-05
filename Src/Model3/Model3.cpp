@@ -1976,7 +1976,7 @@ void CModel3::ClearNVRAM(void)
   EEPROM.Clear();
 }
 
-void CModel3::RunFrame(void)
+void CModel3::RunFrame(bool skipRender)
 {
   UINT32 start = CThread::GetTicks();
 
@@ -1987,6 +1987,9 @@ void CModel3::RunFrame(void)
     if (!StartThreads())
       goto ThreadError;
 
+    // Pass skip hint to PPC thread before waking it
+    m_skipRender = skipRender;
+
     // Wake threads for PPC main board (if multi-threading GPU), sound board (if sync'd) and drive board (if attached) so they can process a frame
     if ((m_gpuMultiThreaded       && !ppcBrdThreadSync->Post()) ||
         (syncSndBrdThread         && !sndBrdThreadSync->Post()) ||
@@ -1996,12 +1999,14 @@ void CModel3::RunFrame(void)
     // If not multi-threading GPU, then run PPC main board for a frame and sync GPUs now in this thread
     if (!m_gpuMultiThreaded)
     {
-      RunMainBoardFrame();
-      SyncGPUs();
+      RunMainBoardFrame(skipRender);
+      if (!skipRender)
+        SyncGPUs();
     }
 
-    // Render frame
-    RenderFrame();
+    // Render frame (skip if frame skipping)
+    if (!skipRender)
+      RenderFrame();
 
     // Enter notify wait critical section
     if (!notifyLock->Lock())
@@ -2023,8 +2028,8 @@ void CModel3::RunFrame(void)
     if (!notifyLock->Unlock())
       goto ThreadError;
 
-    // If multi-threading GPU, then sync GPUs last while PPC main board thread is waiting
-    if (m_gpuMultiThreaded)
+    // If multi-threading GPU, then sync GPUs last (only if rendering this frame)
+    if (m_gpuMultiThreaded && !skipRender)
       SyncGPUs();
 
 #ifdef NET_BOARD
@@ -2035,9 +2040,12 @@ void CModel3::RunFrame(void)
   else
   {
     // If not multi-threaded, then just process and render a single frame for PPC main board, sound board and drive board in turn in this thread
-    RunMainBoardFrame();
-    SyncGPUs();
-    RenderFrame();
+    RunMainBoardFrame(skipRender);
+    if (!skipRender)
+    {
+      SyncGPUs();
+      RenderFrame();
+    }
     RunSoundBoardFrame();
     if (DriveBoard->IsAttached())
       RunDriveBoardFrame();
@@ -2076,7 +2084,7 @@ static unsigned GetCPUClockFrequencyInHz(const Game &game, Util::Config::Node &c
   return mhz * 1000000;
 }
 
-void CModel3::RunMainBoardFrame(void)
+void CModel3::RunMainBoardFrame(bool skipRender)
 {
 	UINT32 start = CThread::GetTicks();
 
@@ -2174,7 +2182,8 @@ void CModel3::RunMainBoardFrame(void)
             IRQ.Assert(0x02);       // irq2 is asserted at the start of the last line on system24 (as apposed to the end). Lost world won't work without this, the game soft locks. We assume the same here
         }
 
-        TileGen.DrawLine(i);
+        if (!skipRender)
+            TileGen.DrawLine(i);
         ppc_execute(lineCycles);
     }
 
@@ -2217,6 +2226,8 @@ void CModel3::RenderFrame(void)
 
 bool CModel3::RunSoundBoardFrame(void)
 {
+  if (!g_options.sound_enable)
+    return false;
   UINT32 start = CThread::GetTicks();
   bool bufferFull = SoundBoard.RunFrame();
   timings.sndTicks = CThread::GetTicks() - start;
@@ -2568,7 +2579,7 @@ int CModel3::RunMainBoardThread(void)
       return 0;
 
     // Process a single frame for PPC main board
-    RunMainBoardFrame();
+    RunMainBoardFrame(m_skipRender);
 
     // Enter notify critical section
     if (!notifyLock->Lock())

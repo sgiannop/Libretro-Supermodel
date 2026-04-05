@@ -102,7 +102,7 @@ public:
    *
    * Runs one video frame.
    */
-  virtual void RunFrame(void) = 0;
+  virtual void RunFrame(bool skipRender = false) = 0;
 
   /*
    * RenderFrame(void):

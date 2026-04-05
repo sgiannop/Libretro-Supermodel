@@ -60,9 +60,11 @@ public:
     void InitializePaths(const std::string& baseConfigPath);
     void UpdateScreenSize(unsigned newWidth, unsigned newHeight);
     void SetServiceOnSticks(bool enabled);
+    void SetSoundVolume(int volume);
+    void SetMusicVolume(int volume);
     int Emulate(const char* romPath);
     void SetFullScreenRefreshRate();
-    int Supermodel(const Game &game);
+    int Supermodel(const Game &game, bool skipRender = false);
     void DestroyGLScreen();
     Result ConfigureInputs(CInputs *Inputs, Util::Config::Node *fileConfig, Util::Config::Node *runtimeConfig, const Game &game, bool configure);
     void PrintGLInfo(bool createScreen, bool infoLog, bool printExtensions);

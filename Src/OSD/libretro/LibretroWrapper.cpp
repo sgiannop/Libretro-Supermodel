@@ -20,6 +20,7 @@
 #endif
 
 #include "Supermodel.h"
+#include "OSD/libretro/CoreOptionsTypes.h"
 #include "Util/Format.h"
 #include "Util/NewConfig.h"
 #include "Util/ConfigBuilders.h"
@@ -502,7 +503,7 @@ QuitError:
   return 1;
 }
 
-int LibretroWrapper::Supermodel(const Game &game)
+int LibretroWrapper::Supermodel(const Game &game, bool skipRender)
 {
     if (paused)
     {
@@ -510,7 +511,7 @@ int LibretroWrapper::Supermodel(const Game &game)
     }
     else
     {
-        Model3->RunFrame();
+        Model3->RunFrame(skipRender);
 
         // ULTRA-LIGHTWEIGHT: Calculate FPS only once every 60 frames
         static int frameCount = 0;
@@ -870,4 +871,14 @@ void LibretroWrapper::SetServiceOnSticks(bool enabled)
     auto* libretroInput = dynamic_cast<CLibretroInputSystem*>(m_inputSystem.get());
     if (libretroInput)
         libretroInput->SetServiceOnSticks(enabled);
+}
+
+void LibretroWrapper::SetSoundVolume(int volume)
+{
+    s_runtime_config.Get("SoundVolume").SetValue(volume);
+}
+
+void LibretroWrapper::SetMusicVolume(int volume)
+{
+    s_runtime_config.Get("MusicVolume").SetValue(volume);
 }

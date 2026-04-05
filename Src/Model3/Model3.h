@@ -90,7 +90,7 @@ public:
   void SaveNVRAM(CBlockFile *NVRAM);
   void LoadNVRAM(CBlockFile *NVRAM);
   void ClearNVRAM(void);
-  void RunFrame(void);
+  void RunFrame(bool skipRender = false);
   void RenderFrame(void);
   void Reset(void);
   const Game &GetGame(void) const;
@@ -207,7 +207,7 @@ private:
   UINT8     ReadSystemRegister(unsigned reg) const;
   void      WriteSystemRegister(unsigned reg, UINT8 data);
 
-  void RunMainBoardFrame(void);                       // Runs PPC main board for a frame
+  void RunMainBoardFrame(bool skipRender = false);    // Runs PPC main board for a frame
   void SyncGPUs(void);                                // Sync's up GPUs in preparation for rendering - must be called when PPC is not running
   bool RunSoundBoardFrame(void);                      // Runs sound board for a frame
   void RunDriveBoardFrame(void);                      // Runs drive board for a frame
@@ -236,6 +236,7 @@ private:
   Util::Config::Node &m_config;
   bool m_multiThreaded;
   bool m_gpuMultiThreaded;
+  bool m_skipRender;        // Frame skip hint passed to PPC thread
 
   // Game and hardware information
   Game m_game;

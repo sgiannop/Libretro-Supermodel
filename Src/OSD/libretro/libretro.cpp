@@ -35,7 +35,20 @@ static LibretroWrapper wrapper = LibretroWrapper();
 char retro_save_directory[4096];
 char retro_base_directory[4096];
 
-CoreOptions g_options = { 1, false, true, true, false, 100, 100, 100 };
+CoreOptions g_options = {
+   /* resolution_multiplier */ 1,
+   /* widescreen           */ false,
+   /* vsync                */ true,
+   /* crosshairs           */ true,
+   /* force_feedback       */ false,
+   /* analog_sensitivity   */ 100,
+   /* sound_volume         */ 100,
+   /* music_volume         */ 100,
+   /* service_on_sticks    */ false,
+   /* ppc_frequency        */ 0,
+   /* frameskip            */ 0,
+   /* sound_enable         */ true,
+};
 
 // Optimization: Cache last known resolution to avoid redundant updates
 static unsigned last_width = 0;
@@ -89,6 +102,9 @@ void retro_init(void)
 
    log_cb(RETRO_LOG_INFO, "[Supermodel] Config Path: %s\n", retro_base_directory);
    log_cb(RETRO_LOG_INFO, "[Supermodel] Save Path: %s\n", retro_save_directory);
+
+   bool can_dupe = true;
+   environ_cb(RETRO_ENVIRONMENT_GET_CAN_DUPE, &can_dupe);
 }
 
 void retro_deinit(void)
@@ -263,6 +279,9 @@ void retro_run(void)
       if (g_options.service_on_sticks != old_service_on_sticks)
          wrapper.SetServiceOnSticks(g_options.service_on_sticks);
 
+      wrapper.SetSoundVolume(g_options.sound_volume);
+      wrapper.SetMusicVolume(g_options.music_volume);
+
 
       auto libretroInput = std::static_pointer_cast<CLibretroInputSystem>(wrapper.getInputSystem());
       if (libretroInput) {
@@ -281,6 +300,10 @@ void retro_run(void)
    if (first_run)
    {
       first_run = false;
+
+      // Apply initial volume settings now that the emulator is fully initialized
+      wrapper.SetSoundVolume(g_options.sound_volume);
+      wrapper.SetMusicVolume(g_options.music_volume);
         
       log_cb(RETRO_LOG_INFO, "[Supermodel] First frame - checking NVRAM buffer...\n");
         
@@ -303,6 +326,18 @@ void retro_run(void)
    }
 
     if (input_poll_cb) input_poll_cb();
+
+   // Frame skip: determine whether to skip GPU rendering this frame
+   static int s_skipCounter = 0;
+   bool skipRender = false;
+   if (g_options.frameskip > 0)
+   {
+      s_skipCounter++;
+      if (s_skipCounter <= g_options.frameskip)
+         skipRender = true;
+      else
+         s_skipCounter = 0;
+   }
 
    // Apply resolution multiplier from core options - always use NATIVE resolution as base
    const unsigned NATIVE_WIDTH = 496;
@@ -328,72 +363,64 @@ void retro_run(void)
       last_height = target_h;
    }
 
-   // CRITICAL FOR WINDOWS: Reset GL state BEFORE Supermodel renders
-   // Windows drivers are strict and don't tolerate corrupted state
-   GLuint sm_fbo = wrapper.getSuperModelFBO();
-   glBindFramebuffer(GL_FRAMEBUFFER, sm_fbo);
-
-   // Reset all potentially problematic state
-   glDisable(GL_SCISSOR_TEST);
-   glDisable(GL_STENCIL_TEST);
-   glEnable(GL_DEPTH_TEST);       // Supermodel needs depth
-   glDepthFunc(GL_LESS);
-   glDepthMask(GL_TRUE);
-   glDisable(GL_BLEND);
-   glDisable(GL_CULL_FACE);
-   glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-
-   // CRITICAL FIX: Set viewport to match render target size
-   // RetroArch may have changed it, so we must set it here
-   glViewport(0, 0, target_w, target_h);
-   glScissor(0, 0, target_w, target_h);
-
-   // Clear the framebuffer (critical for Windows)
-   glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-   glClearDepth(1.0);
-   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
-
-   // Remove the viewport logging - we don't need it anymore
    Game game = wrapper.getGame();
    wrapper.Inputs->Poll(&game, 0, 0, target_w, target_h);
 
-   // Run Supermodel with clean GL state
-   wrapper.Supermodel(game);
+   GLuint sm_fbo = wrapper.getSuperModelFBO();
 
-   // CRITICAL FIX: Supermodel changes viewport during rendering
-   // Force it back to correct dimensions for blitting
-   glViewport(0, 0, target_w, target_h);
+   if (skipRender)
+   {
+      // Skipped frame: run emulation logic only, no GL work at all.
+      // video_cb(NULL) tells RetroArch to reuse the last displayed frame.
+      wrapper.Supermodel(game, true);
+      video_cb(NULL, target_w, target_h, 0);
+   }
+   else
+   {
+      // Full render: reset GL state, clear FBO, run emulation + rendering
+      glBindFramebuffer(GL_FRAMEBUFFER, sm_fbo);
 
-   // CHECK VIEWPORT AFTER FIX
-   GLint viewport_after_render[4];
-   glGetIntegerv(GL_VIEWPORT, viewport_after_render);
+      glDisable(GL_SCISSOR_TEST);
+      glDisable(GL_STENCIL_TEST);
+      glEnable(GL_DEPTH_TEST);
+      glDepthFunc(GL_LESS);
+      glDepthMask(GL_TRUE);
+      glDisable(GL_BLEND);
+      glDisable(GL_CULL_FACE);
+      glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 
-   // CRITICAL FOR WINDOWS: Ensure all rendering is complete
-   glFlush();
+      glViewport(0, 0, target_w, target_h);
+      glScissor(0, 0, target_w, target_h);
 
-   // Now prepare for blit to RetroArch's framebuffer
-   GLuint ra_fbo = wrapper.getHwRender().get_current_framebuffer();
-   
-   glBindFramebuffer(GL_READ_FRAMEBUFFER, sm_fbo);
-   glBindFramebuffer(GL_DRAW_FRAMEBUFFER, ra_fbo);
+      glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+      glClearDepth(1.0);
+      glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
-   // Disable tests that might interfere with blit
-   glDisable(GL_SCISSOR_TEST);
-   glDisable(GL_STENCIL_TEST);
-   glDisable(GL_DEPTH_TEST);
+      wrapper.Supermodel(game, false);
 
-   // Blit from Internal Supermodel FBO to RetroArch's Front Buffer
-   glBlitFramebuffer(
-       0, 0, target_w, target_h,       // Source (Standard Orientation: 0 to H)
-       0, 0, target_w, target_h,       // Destination
-       GL_COLOR_BUFFER_BIT,
-       GL_LINEAR                       
-   );
+      glViewport(0, 0, target_w, target_h);
+      glFlush();
 
-   // Reset to RetroArch's framebuffer
-   glBindFramebuffer(GL_FRAMEBUFFER, ra_fbo); 
-   // Signal frame is ready
-   video_cb(RETRO_HW_FRAME_BUFFER_VALID, target_w, target_h, 0);
+      // Blit from Supermodel FBO to RetroArch's framebuffer
+      GLuint ra_fbo = wrapper.getHwRender().get_current_framebuffer();
+
+      glBindFramebuffer(GL_READ_FRAMEBUFFER, sm_fbo);
+      glBindFramebuffer(GL_DRAW_FRAMEBUFFER, ra_fbo);
+
+      glDisable(GL_SCISSOR_TEST);
+      glDisable(GL_STENCIL_TEST);
+      glDisable(GL_DEPTH_TEST);
+
+      glBlitFramebuffer(
+          0, 0, target_w, target_h,
+          0, 0, target_w, target_h,
+          GL_COLOR_BUFFER_BIT,
+          GL_LINEAR
+      );
+
+      glBindFramebuffer(GL_FRAMEBUFFER, ra_fbo);
+      video_cb(RETRO_HW_FRAME_BUFFER_VALID, target_w, target_h, 0);
+   }
 }
 
 // --- Save States ---

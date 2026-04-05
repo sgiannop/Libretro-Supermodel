@@ -153,9 +153,9 @@ static struct retro_core_option_v2_definition option_defs[] = {
    },
    {
       "supermodel_music_volume",
-      "Music Volume", 
+      "Music Volume",
       NULL,
-      "Adjust music volume separately from sound effects.",
+      "Adjust DSB music volume (affects games with separate music board e.g. Sega Rally 2, Virtua Fighter 3).",
       NULL,
       "audio",
       {
@@ -167,7 +167,37 @@ static struct retro_core_option_v2_definition option_defs[] = {
       },
       "100"
    },
+   {
+      "supermodel_sound_enable",
+      "Sound Enable",
+      NULL,
+      "Enable or disable sound emulation. Disabling sound can significantly improve performance on slow hardware.",
+      NULL,
+      "audio",
+      {
+         { "enabled",  NULL },
+         { "disabled", NULL },
+         { NULL, NULL },
+      },
+      "enabled"
+   },
    // CPU
+   {
+      "supermodel_frameskip",
+      "Frame Skip",
+      NULL,
+      "Skip rendering every N frames to reduce GPU load on slow hardware. '0' disables frame skipping. Higher values improve speed at the cost of visual smoothness.",
+      NULL,
+      "cpu",
+      {
+         { "0", "Disabled" },
+         { "1", "Skip 1 (render every 2nd frame)" },
+         { "2", "Skip 2 (render every 3rd frame)" },
+         { "3", "Skip 3 (render every 4th frame)" },
+         { NULL, NULL },
+      },
+      "0"
+   },
    {
       "supermodel_ppc_frequency",
       "PowerPC CPU Frequency",
@@ -177,6 +207,10 @@ static struct retro_core_option_v2_definition option_defs[] = {
       "cpu",
       {
          { "auto", "Auto (Default)" },
+         { "8",    "8 MHz (Ultra Low - Experimental)" },
+         { "16",   "16 MHz (Experimental)" },
+         { "25",   "25 MHz" },
+         { "33",   "33 MHz" },
          { "50",   "50 MHz" },
          { "66",   "66 MHz" },
          { "100",  "100 MHz" },
@@ -219,6 +253,7 @@ void update_core_options(void)
    g_options.vsync = strcmp(option_get("supermodel_vsync", "enabled"), "enabled") == 0;
    g_options.crosshairs = strcmp(option_get("supermodel_crosshairs", "enabled"), "enabled") == 0;
 
+   g_options.sound_enable = strcmp(option_get("supermodel_sound_enable", "enabled"), "enabled") == 0;
    g_options.sound_volume = atoi(option_get("supermodel_sound_volume", "100"));
    g_options.music_volume = atoi(option_get("supermodel_music_volume", "100"));
 
@@ -226,24 +261,20 @@ void update_core_options(void)
    g_options.force_feedback = strcmp(option_get("supermodel_force_feedback", "disabled"), "enabled") == 0;
    g_options.analog_sensitivity = atoi(option_get("supermodel_analog_sensitivity", "100"));
 
+   // Parse frame skip option
+   g_options.frameskip = atoi(option_get("supermodel_frameskip", "0"));
+   if (g_options.frameskip < 0) g_options.frameskip = 0;
+   if (g_options.frameskip > 3) g_options.frameskip = 3;
+
    // Parse PowerPC frequency option
    const char* ppc_freq = option_get("supermodel_ppc_frequency", "auto");
    if (strcmp(ppc_freq, "auto") == 0)
-      g_options.ppc_frequency = 0;  // 0 = auto (use game.stepping defaults)
-   else if (strcmp(ppc_freq, "50") == 0)
-      g_options.ppc_frequency = 50;
-   else if (strcmp(ppc_freq, "66") == 0)
-      g_options.ppc_frequency = 66;
-   else if (strcmp(ppc_freq, "100") == 0)
-      g_options.ppc_frequency = 100;
-   else if (strcmp(ppc_freq, "133") == 0)
-      g_options.ppc_frequency = 133;
-   else if (strcmp(ppc_freq, "166") == 0)
-      g_options.ppc_frequency = 166;
-   else if (strcmp(ppc_freq, "200") == 0)
-      g_options.ppc_frequency = 200;
+      g_options.ppc_frequency = 0;
    else
-      g_options.ppc_frequency = 0;  // Default to auto on unrecognized value
+   {
+      int mhz = atoi(ppc_freq);
+      g_options.ppc_frequency = (mhz > 0) ? mhz : 0;
+   }
 
    // if (log_cb)
    // {
