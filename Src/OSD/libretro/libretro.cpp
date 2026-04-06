@@ -250,7 +250,7 @@ void retro_run(void)
    bool options_updated = false;
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE, &options_updated) && options_updated)
    {
-      int  old_multiplier = g_options.resolution_multiplier;
+      float old_multiplier = g_options.resolution_multiplier;
       bool old_widescreen = g_options.widescreen;
       bool old_service_on_sticks = g_options.service_on_sticks;
 
@@ -328,15 +328,16 @@ void retro_run(void)
     if (input_poll_cb) input_poll_cb();
 
    // Frame skip: determine whether to skip GPU rendering this frame
+   // Uses modulo to create consistent (skip N, render 1) pattern
+   // frameskip=1: S,R,S,R... (render 1 per 2 frames)
+   // frameskip=2: S,S,R,S,S,R... (render 1 per 3 frames)
+   // frameskip=3: S,S,S,R,S,S,S,R... (render 1 per 4 frames)
    static int s_skipCounter = 0;
    bool skipRender = false;
    if (g_options.frameskip > 0)
    {
-      s_skipCounter++;
-      if (s_skipCounter <= g_options.frameskip)
-         skipRender = true;
-      else
-         s_skipCounter = 0;
+      s_skipCounter = (s_skipCounter + 1) % (g_options.frameskip + 1);
+      skipRender = (s_skipCounter != 0);  // Render only when counter == 0
    }
 
    // Apply resolution multiplier from core options - always use NATIVE resolution as base
@@ -399,7 +400,7 @@ void retro_run(void)
       wrapper.Supermodel(game, false);
 
       glViewport(0, 0, target_w, target_h);
-      glFlush();
+      // REMOVED: glFlush() - not needed before glBlitFramebuffer and causes unnecessary GPU stall
 
       // Blit from Supermodel FBO to RetroArch's framebuffer
       GLuint ra_fbo = wrapper.getHwRender().get_current_framebuffer();

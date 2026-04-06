@@ -54,6 +54,14 @@ extern Result OpenAudio(const Util::Config::Node& config);
 extern bool OutputAudio(unsigned numSamples, const float* leftFrontBuffer, const float* rightFrontBuffer, const float* leftRearBuffer, const float* rightRearBuffer, bool flipStereo);
 
 /*
+ * AdjustAudioForCPUFrequency(float ppc_frequency_mhz)
+ *
+ * Adjusts audio buffer parameters when PPC frequency changes for underclocking.
+ * Ensures audio stays in sync when emulation speed is reduced.
+ */
+extern void AdjustAudioForCPUFrequency(float ppc_frequency_mhz);
+
+/*
  * CloseAudio()
  *
  * Shuts down the audio system.

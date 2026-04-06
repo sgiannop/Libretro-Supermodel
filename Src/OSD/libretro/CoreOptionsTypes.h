@@ -2,7 +2,7 @@
 #define SUPERMODEL_CORE_OPTIONS_TYPES_H
 
 struct CoreOptions {
-   int resolution_multiplier;
+   float resolution_multiplier;
    bool widescreen;
    bool vsync;
    bool crosshairs;

@@ -2972,6 +2972,9 @@ Result CModel3::LoadGame(const Game &game, const ROMSet &rom_set)
     // Map frequency to multiplier: with 66MHz bus, multiplier = frequency / 66
     switch (g_options.ppc_frequency)
     {
+      case 33:
+        ppc_config.bus_frequency_multiplier = 0x08;  // 0.5x -> 33 MHz
+        break;
       case 50:
         ppc_config.bus_frequency_multiplier = 0x0C;  // 0.75x -> 50 MHz
         break;

@@ -2,6 +2,7 @@
 #include "libretro_cbs.h"
 #include <cstdlib>
 #include <cstring>
+#include <OSD/Audio.h>
 
 // --- Core Options ---
 static struct retro_core_option_v2_category option_cats[] = {
@@ -34,11 +35,12 @@ static struct retro_core_option_v2_definition option_defs[] = {
       "supermodel_resolution",
       "Internal Resolution",
       NULL,
-      "Render at higher internal resolution for improved image quality. Higher values require more GPU power.",
+      "Render at higher internal resolution for improved image quality. Lower values reduce GPU load. 'Half' (248x192) recommended for low-end systems.",
       NULL,
       "video",
       {
-         { "native", "Native (496x384)" },
+         { "half",   "Half (248x192) - Low-End Mobile" },
+         { "native", "Native (496x384) - Recommended" },
          { "2x",     "2x (992x768)" },
          { "3x",     "3x (1488x1152)" },
          { "4x",     "4x (1984x1536)" },
@@ -202,21 +204,18 @@ static struct retro_core_option_v2_definition option_defs[] = {
       "supermodel_ppc_frequency",
       "PowerPC CPU Frequency",
       NULL,
-      "Adjust PowerPC CPU frequency to trade cycle accuracy for performance on low-end hardware. 'Auto' uses defaults based on game stepping.",
+      "Adjust PowerPC CPU frequency to trade cycle accuracy for performance on low-end hardware. 'Auto' uses defaults based on game stepping (66/100/166 MHz).",
       NULL,
       "cpu",
       {
          { "auto", "Auto (Default)" },
-         { "8",    "8 MHz (Ultra Low - Experimental)" },
-         { "16",   "16 MHz (Experimental)" },
-         { "25",   "25 MHz" },
-         { "33",   "33 MHz" },
-         { "50",   "50 MHz" },
-         { "66",   "66 MHz" },
-         { "100",  "100 MHz" },
-         { "133",  "133 MHz" },
-         { "166",  "166 MHz" },
-         { "200",  "200 MHz" },
+         { "33",   "33 MHz (Half Speed - Aggressive)" },
+         { "50",   "50 MHz (0.75x Speed)" },
+         { "66",   "66 MHz (Step 1.0 Default)" },
+         { "100",  "100 MHz (Step 1.5 Default)" },
+         { "133",  "133 MHz (2.0x Base)" },
+         { "166",  "166 MHz (Step 2.x Default)" },
+         { "200",  "200 MHz (Max)" },
          { NULL, NULL },
       },
       "auto"
@@ -240,14 +239,16 @@ static const char* option_get(const char* key, const char* default_value)
 void update_core_options(void)
 {
    const char* resolution = option_get("supermodel_resolution", "native");
-   if (strcmp(resolution, "2x") == 0)
-      g_options.resolution_multiplier = 2;
+   if (strcmp(resolution, "half") == 0)
+      g_options.resolution_multiplier = 0.5f;
+   else if (strcmp(resolution, "2x") == 0)
+      g_options.resolution_multiplier = 2.0f;
    else if (strcmp(resolution, "3x") == 0)
-      g_options.resolution_multiplier = 3;
+      g_options.resolution_multiplier = 3.0f;
    else if (strcmp(resolution, "4x") == 0)
-      g_options.resolution_multiplier = 4;
+      g_options.resolution_multiplier = 4.0f;
    else
-      g_options.resolution_multiplier = 1;
+      g_options.resolution_multiplier = 1.0f;  // native
 
    g_options.widescreen = strcmp(option_get("supermodel_wide_screen", "disabled"), "enabled") == 0;
    g_options.vsync = strcmp(option_get("supermodel_vsync", "enabled"), "enabled") == 0;
@@ -275,6 +276,11 @@ void update_core_options(void)
       int mhz = atoi(ppc_freq);
       g_options.ppc_frequency = (mhz > 0) ? mhz : 0;
    }
+   
+   // Adjust audio buffers if PPC frequency changed
+   // If frequency is "auto" (0), use default 66 MHz
+   float current_ppc_mhz = (g_options.ppc_frequency > 0) ? g_options.ppc_frequency : 66.0f;
+   AdjustAudioForCPUFrequency(current_ppc_mhz);
 
    // if (log_cb)
    // {

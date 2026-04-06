@@ -383,6 +383,44 @@ Result OpenAudio(const Util::Config::Node& config)
 
     return Result::OKAY;
 }
+
+// Adjust audio buffer parameters when CPU frequency changes
+// When PPC is underclocked, emulation runs slower so audio needs fewer samples per frame
+void AdjustAudioForCPUFrequency(float ppc_frequency_mhz)
+{
+    // PPC runs at ppc_frequency_mhz instead of default 66 MHz
+    // Audio should scale proportionally to maintain sync
+    // Example: 33 MHz = 0.5x speed, so samples_per_frame should be half
+    float frequency_ratio = ppc_frequency_mhz / 66.0f;  // 66 MHz is default
+    
+    // Recalculate samples per frame with frequency scaling
+    // Lower frequency = fewer samples needed per frame (emulation runs slower)
+    samples_per_frame_host = (INT32)(SAMPLE_RATE_M3 / (MODEL3_FPS * frequency_ratio));
+    bytes_per_frame_host = (samples_per_frame_host * bytes_per_sample_host);
+    
+    // Also check if we need to resize audio buffer for new sample rate
+    // Keep buffer size proportional to new frame size (roughly 11 frames worth)
+    UINT32 new_buffer_size = 8192 * bytes_per_sample_host;
+    
+    // Only reallocate if size changed significantly
+    if (audioBuffer && new_buffer_size != audioBufferSize)
+    {
+        std::lock_guard<std::mutex> lock(s_audioMutex);
+        INT8* new_buffer = new(std::nothrow) INT8[new_buffer_size];
+        if (new_buffer)
+        {
+            delete[] audioBuffer;
+            audioBuffer = new_buffer;
+            audioBufferSize = new_buffer_size;
+            memset(audioBuffer, 0, audioBufferSize);
+            // Reset playback positions
+            writePos = 0;
+            playPos = 0;
+            writeWrapped = false;
+        }
+    }
+}
+
 bool OutputAudio(unsigned numSamples, const float* leftFrontBuffer, const float* rightFrontBuffer, const float* leftRearBuffer, const float* rightRearBuffer, bool flipStereo)
 {
     UINT32 bytesRemaining;
