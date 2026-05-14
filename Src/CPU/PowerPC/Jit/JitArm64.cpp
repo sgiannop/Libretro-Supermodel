@@ -852,6 +852,15 @@ static bool translate_mulli(Arm64Emitter &e, uint32_t op)
         emit_store_gpr(e, W0, rD);
         return true;
     }
+    // sv = 1 + 2^n (positive): ADD W0, W0, W0, LSL#n  (e.g. 3x, 5x, 9x, 17x)
+    uint32_t sv1 = (uint32_t)sv - 1;
+    if (sv > 0 && sv1 && (sv1 & (sv1 - 1)) == 0) {
+        int shift = __builtin_ctz(sv1);
+        emit_load_gpr(e, W0, rA);
+        e.ADD_W_LSL(W0, W0, W0, shift);
+        emit_store_gpr(e, W0, rD);
+        return true;
+    }
     emit_load_gpr(e, W0, rA);
     e.MOV_W32(W1, (uint32_t)sv);
     e.MUL_W(W0, W0, W1);

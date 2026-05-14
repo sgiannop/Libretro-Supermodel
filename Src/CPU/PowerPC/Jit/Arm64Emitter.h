@@ -229,6 +229,11 @@ public:
     void SBC_W(int Wd, int Wn, int Wm)   { emit(0x5A000000 | (Wm << 16) | (Wn << 5) | Wd); }
     void SBCS_W(int Wd, int Wn, int Wm)  { emit(0x7A000000 | (Wm << 16) | (Wn << 5) | Wd); }
 
+    // ADD with shifted register: ADD Wd, Wn, Wm, LSL #imm  (Wd = Wn + (Wm << imm))
+    void ADD_W_LSL(int Wd, int Wn, int Wm, int imm)
+    {
+        emit(0x0B000000 | (Wm << 16) | (imm << 10) | (Wn << 5) | Wd);
+    }
     // ORR with shifted register: ORR Wd, Wn, Wm, LSL #imm
     void ORR_W_LSL(int Wd, int Wn, int Wm, int imm)
     {
