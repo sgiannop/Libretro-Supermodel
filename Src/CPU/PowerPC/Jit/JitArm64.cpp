@@ -1331,28 +1331,27 @@ static bool translate_op31(Arm64Emitter &e, uint32_t op)
     case 792: {
         emit_load_gpr(e, W0, rD);       // W0 = rS
         emit_load_gpr(e, W1, rB);       // W1 = rB
-        e.AND_W(W1, W1, 63);            // W1 = sh = rB & 63
+        e.AND_W_BITMASK(W1, W1, 0, 5); // W1 = sh = rB & 63  (immr=0, imms=5 → mask=0x3F)
 
         // Result: for sh>=32, sign_ext(rS); for sh<32, ASRV(rS, sh)
         // ARM64 ASRV_W uses W1[4:0] (mod 32) — correct only for sh < 32
         e.ASR_W_IMM(W2, W0, 31);        // W2 = sign_ext(rS) [used when sh >= 32]
         e.ASR_W(W3, W0, W1);            // W3 = rS >> (sh & 31)
-        e.CMP_W_IMM(W1, 32);            // compare sh vs 32
+        e.CMP_W_IMM(W1, 32);            // compare sh vs 32 — flags reused below
         e.CSEL_W(W2, W2, W3, A64_CS);  // result = (sh >= 32) ? sign_ext : shifted
 
         // XER.CA: lost = rS & mask; CA = (rS < 0) AND (lost != 0)
         // mask = (1<<sh)-1 for sh<32; all-ones for sh>=32
+        // CMP flags from above are still valid across the non-flag-setting MOV/LSL/SUB/MVN.
         e.MOV_W32(W3, 1);
         e.LSL_W(W3, W3, W1);            // W3 = 1 << (sh & 31) [mask helper]
         e.SUB_W_IMM(W3, W3, 1);         // W3 = (1<<sh)-1 [small-shift mask]
         e.MVN_W(W4, A64_WZR);           // W4 = 0xFFFFFFFF [large-shift mask]
-        e.CMP_W_IMM(W1, 32);            // re-check sh >= 32
-        e.CSEL_W(W3, W4, W3, A64_CS);  // W3 = (sh >= 32) ? 0xFFFFFFFF : mask
-        e.AND_W(W3, W0, W3);            // W3 = rS & mask (bits shifted out)
+        e.CSEL_W(W3, W4, W3, A64_CS);  // W3 = (sh >= 32) ? 0xFFFFFFFF : mask  [no CMP needed]
 
         e.TST_W(W0, W0);                // set N if rS < 0
         e.CSET_W(W4, A64_MI);           // W4 = 1 if rS < 0
-        e.TST_W(W3, W3);                // set Z if W3 == 0
+        e.ANDS_W(W3, W0, W3);           // W3 = rS & mask; Z = (lost bits == 0)
         e.CSET_W(W3, A64_NE);           // W3 = 1 if lost bits != 0
         e.AND_W(W3, W3, W4);            // W3 = CA (0 or 1)
 
