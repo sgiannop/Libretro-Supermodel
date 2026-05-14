@@ -336,8 +336,7 @@ static void emit_store_cr_bit(Arm64Emitter &e, int Wbit, int Wtmp, int Wmask, in
 static void emit_load_xer_ca(Arm64Emitter &e, int Wdst)
 {
     e.LDR_W(Wdst, PPC_PTR, OFF_XER);
-    e.LSR_W_IMM(Wdst, Wdst, 29);
-    e.AND_W(Wdst, Wdst, 1);
+    e.UBFM_W(Wdst, Wdst, 29, 29);   // extract bit 29 → bit 0
 }
 
 // Set ARM carry flag from Wca (0 or 1). Clobbers Wtmp.
@@ -349,15 +348,12 @@ static void emit_arm_carry_from_W(Arm64Emitter &e, int Wca, int Wtmp)
 }
 
 // After ADDS_W/ADCS_W/SUBS_W/SBCS_W, write ARM carry flag → XER.CA.
-// Clobbers W2, W3, W4. Must be called immediately after the flag-setting op.
+// Clobbers W2, W3. Must be called immediately after the flag-setting op.
 static void emit_update_xer_ca(Arm64Emitter &e)
 {
     e.CSET_W(W2, A64_CS);            // W2 = carry (reads flags before anything else)
     e.LDR_W(W3, PPC_PTR, OFF_XER);
-    e.MOV_W32(W4, ~0x20000000U);     // ~CA mask (MOV_W32 does not set flags)
-    e.AND_W(W3, W3, W4);             // clear old CA
-    e.LSL_W_IMM(W2, W2, 29);
-    e.ORR_W(W3, W3, W2);
+    e.BFI_W(W3, W2, 29, 1);          // insert carry into XER.CA (bit 29), clear old
     e.STR_W(W3, PPC_PTR, OFF_XER);
 }
 

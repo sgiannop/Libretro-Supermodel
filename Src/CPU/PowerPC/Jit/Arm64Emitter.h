@@ -249,6 +249,13 @@ public:
     void SXTH_W(int Wd, int Wn) { SBFM_W(Wd, Wn, 0, 15); }
     void UXTB_W(int Wd, int Wn) { UBFM_W(Wd, Wn, 0, 7); }
     void UXTH_W(int Wd, int Wn) { UBFM_W(Wd, Wn, 0, 15); }
+    // BFM Wd, Wn, #immr, #imms  (bitfield move — insert)
+    void BFM_W(int Wd, int Wn, int immr, int imms)
+    {
+        emit(0x33000000 | ((immr & 0x1F) << 16) | ((imms & 0x1F) << 10) | (Wn << 5) | Wd);
+    }
+    // BFI Wd, Wn, #lsb, #width — insert Wn[0..width-1] into Wd[lsb..lsb+width-1]
+    void BFI_W(int Wd, int Wn, int lsb, int width) { BFM_W(Wd, Wn, (32 - lsb) & 31, width - 1); }
 
     // --- 64-bit ops ---
     void SUB_X_IMM(int Xd, int Xn, uint32_t imm12)
