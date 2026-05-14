@@ -57,6 +57,12 @@ public:
         int imm7 = (off / 8) & 0x7F;
         emit(0xA8C00000 | (imm7 << 15) | (Xt2 << 10) | (Xn << 5) | Xt1);
     }
+    // STP Wt1, Wt2, [Xn, #off] (signed offset)  off must be multiple of 4, -256..252
+    void STP_W(int Wt1, int Wt2, int Xn, int off)
+    {
+        int imm7 = (off / 4) & 0x7F;
+        emit(0x29000000 | (imm7 << 15) | (Wt2 << 10) | (Xn << 5) | Wt1);
+    }
 
     // --- Load / Store 32-bit (unsigned scaled offset, off multiple of 4, 0..16380) ---
     void LDR_W(int Wt, int Xn, uint32_t byte_off)

@@ -313,20 +313,16 @@ static void emit_load_cr_bit(Arm64Emitter &e, int Wdst, int crbit)
     int field  = crbit / 4;
     int bitpos = 3 - (crbit % 4);   // nibble bit: 3=MSB(LT), 0=LSB(SO)
     e.LDRB(Wdst, PPC_PTR, OFF_CR + field);
-    if (bitpos > 0) e.LSR_W_IMM(Wdst, Wdst, bitpos);
-    e.AND_W(Wdst, Wdst, 1);
+    e.UBFM_W(Wdst, Wdst, bitpos, bitpos);  // extract bit[bitpos] → bit[0], zero-extend
 }
 
-// Store bit 0 of Wbit into CR bit crbit. Clobbers Wbit, Wtmp, Wmask.
-static void emit_store_cr_bit(Arm64Emitter &e, int Wbit, int Wtmp, int Wmask, int crbit)
+// Store bit 0 of Wbit into CR bit crbit. Clobbers Wbit (unused after), Wtmp.
+static void emit_store_cr_bit(Arm64Emitter &e, int Wbit, int Wtmp, int crbit)
 {
     int field  = crbit / 4;
     int bitpos = 3 - (crbit % 4);
     e.LDRB(Wtmp, PPC_PTR, OFF_CR + field);
-    e.MOV_W32(Wmask, 1u << bitpos);
-    e.BIC_W(Wtmp, Wtmp, Wmask);         // clear the target bit
-    if (bitpos > 0) e.LSL_W_IMM(Wbit, Wbit, bitpos);
-    e.ORR_W(Wtmp, Wtmp, Wbit);
+    e.BFI_W(Wtmp, Wbit, bitpos, 1);    // insert Wbit[0] into Wtmp[bitpos]
     e.STRB(Wtmp, PPC_PTR, OFF_CR + field);
 }
 
@@ -386,9 +382,8 @@ static void emit_call(Arm64Emitter &e, uint64_t fn_addr)
 static void emit_set_pc_npc(Arm64Emitter &e, uint32_t inst_pc)
 {
     e.MOV_W32(W0, inst_pc);
-    e.STR_W(W0, PPC_PTR, OFF_PC);
-    e.MOV_W32(W0, inst_pc + 4);
-    e.STR_W(W0, PPC_PTR, OFF_NPC);
+    e.ADD_W_IMM(W1, W0, 4);
+    e.STP_W(W0, W1, PPC_PTR, OFF_PC);
 }
 
 // Emit a fallback call to ppc_dispatch_opcode(opcode)
@@ -496,15 +491,14 @@ static bool translate_store_imm(Arm64Emitter &e, uint32_t op, int opcode)
 
 // Emit the block epilogue: update icount, set pc/npc, restore and return
 // Variant: NPC comes from a register (W_npc) rather than a compile-time constant.
-// The caller must ensure W_npc is not W0 (W0 is used for icount).
+// The caller must ensure W_npc is not W0 or W1.
 static void emit_epilogue_npc_reg(Arm64Emitter &e, int inst_count, uint32_t last_pc, int W_npc)
 {
     e.LDR_W(W0, PPC_PTR, OFF_ICOUNT);
     e.SUB_W_IMM(W0, W0, inst_count);
     e.STR_W(W0, PPC_PTR, OFF_ICOUNT);
-    e.MOV_W32(W0, last_pc);
-    e.STR_W(W0, PPC_PTR, OFF_PC);
-    e.STR_W(W_npc, PPC_PTR, OFF_NPC);
+    e.MOV_W32(W1, last_pc);
+    e.STP_W(W1, W_npc, PPC_PTR, OFF_PC);
     e.LDP_post(PPC_PTR, 30, A64_SP, 16);
     e.RET();
 }
@@ -521,13 +515,10 @@ static void emit_epilogue(Arm64Emitter &e, int inst_count, uint32_t last_pc, uin
     }
     e.STR_W(W0, PPC_PTR, OFF_ICOUNT);
 
-    // ppc.pc = last_pc
+    // ppc.pc = last_pc; ppc.npc = next_pc (store pair)
     e.MOV_W32(W0, last_pc);
-    e.STR_W(W0, PPC_PTR, OFF_PC);
-
-    // ppc.npc = next_pc
-    e.MOV_W32(W0, next_pc);
-    e.STR_W(W0, PPC_PTR, OFF_NPC);
+    e.MOV_W32(W1, next_pc);
+    e.STP_W(W0, W1, PPC_PTR, OFF_PC);
 
     e.LDP_post(PPC_PTR, 30, A64_SP, 16);  // restore X19, X30
     e.RET();
@@ -554,9 +545,8 @@ static void emit_epilogue_chained(Arm64Emitter &e, int inst_count, uint32_t last
     e.STR_W(W4, PPC_PTR, OFF_ICOUNT);
 
     e.MOV_W32(W0, last_pc);
-    e.STR_W(W0, PPC_PTR, OFF_PC);
-    e.MOV_W32(W0, next_pc);
-    e.STR_W(W0, PPC_PTR, OFF_NPC);
+    e.MOV_W32(W1, next_pc);
+    e.STP_W(W0, W1, PPC_PTR, OFF_PC);
 
     // Mirror dispatch-loop: if (new_icount <= dec_trigger_cycle) interrupt_pending |= 2
     e.LDR_W(W1, PPC_PTR, (uint32_t)OFF_DEC_TRIGGER);
@@ -2493,7 +2483,7 @@ JitBlock *JitArm64::compile(uint32_t start_pc)
                 case 449: e.ORR_W(W0, W0, W1); break;
                 default: break;
                 }
-                emit_store_cr_bit(e, W0, W2, W3, crBD);
+                emit_store_cr_bit(e, W0, W2, crBD);
                 handled = true;
                 break;
             }
