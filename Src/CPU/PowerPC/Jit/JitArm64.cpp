@@ -691,9 +691,9 @@ static bool translate_andi_dot(Arm64Emitter &e, uint32_t op)
 
     emit_load_gpr(e, W0, rS);
     e.MOV_W32(W1, uimm);
-    e.AND_W(W0, W0, W1);
+    e.ANDS_W(W0, W0, W1);          // sets Z/N flags → skip CMP in CR update
     emit_store_gpr(e, W0, rA);
-    emit_set_cr0_from_W0(e);
+    emit_cr_from_flags_signed(e, 0);
     return true;
 }
 
@@ -706,9 +706,9 @@ static bool translate_andis_dot(Arm64Emitter &e, uint32_t op)
 
     emit_load_gpr(e, W0, rS);
     e.MOV_W32(W1, uimm);
-    e.AND_W(W0, W0, W1);
+    e.ANDS_W(W0, W0, W1);          // sets Z/N flags → skip CMP in CR update
     emit_store_gpr(e, W0, rA);
-    emit_set_cr0_from_W0(e);
+    emit_cr_from_flags_signed(e, 0);
     return true;
 }
 
@@ -918,10 +918,19 @@ static bool translate_rlwnm(Arm64Emitter &e, uint32_t op)
 
     if (mask != 0xFFFFFFFFu) {
         e.MOV_W32(W1, mask);
-        e.AND_W(W0, W0, W1);
+        if (rc) {
+            e.ANDS_W(W0, W0, W1);       // sets Z/N flags → skip CMP in CR update
+        } else {
+            e.AND_W(W0, W0, W1);
+        }
     }
     emit_store_gpr(e, W0, rA);
-    if (rc) emit_set_cr0_from_W0(e);
+    if (rc) {
+        if (mask != 0xFFFFFFFFu)
+            emit_cr_from_flags_signed(e, 0);  // flags set by ANDS_W above
+        else
+            emit_set_cr0_from_W0(e);          // full rotate, need CMP
+    }
     return true;
 }
 
