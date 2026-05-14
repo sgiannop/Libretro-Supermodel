@@ -369,6 +369,15 @@ public:
     {
         emit(0x35000000 | (((off_bytes / 4) & 0x7FFFF) << 5) | Wn);
     }
+    // TBZ/TBNZ: test bit b (0-31) and branch if zero/non-zero (±32 KB range)
+    void TBZ_W(int Wt, int b, int off_bytes)
+    {
+        emit(0x36000000 | ((b & 0x1F) << 19) | (((off_bytes / 4) & 0x3FFF) << 5) | Wt);
+    }
+    void TBNZ_W(int Wt, int b, int off_bytes)
+    {
+        emit(0x37000000 | ((b & 0x1F) << 19) | (((off_bytes / 4) & 0x3FFF) << 5) | Wt);
+    }
 
     // Emit a branch with 0 offset (to be patched later), return address of instruction
     uint32_t* emit_B_placeholder()
@@ -395,6 +404,18 @@ public:
         CBNZ_W(Wn, 0);
         return p;
     }
+    uint32_t* emit_TBZ_W_placeholder(int Wt, int b)
+    {
+        uint32_t* p = ptr();
+        TBZ_W(Wt, b, 0);
+        return p;
+    }
+    uint32_t* emit_TBNZ_W_placeholder(int Wt, int b)
+    {
+        uint32_t* p = ptr();
+        TBNZ_W(Wt, b, 0);
+        return p;
+    }
 
     void patch_B(uint32_t* at, uint32_t* target)
     {
@@ -410,6 +431,12 @@ public:
     {
         int off = (int)((target - at) * 4);
         *at = (*at & 0xFF00001F) | (((off / 4) & 0x7FFFF) << 5);
+    }
+    // patch_TBZ: update imm14 field in bits [18:5]; preserves b5, opcode, b[4:0], Rt
+    void patch_TBZ(uint32_t* at, uint32_t* target)
+    {
+        int off = (int)((target - at) * 4);
+        *at = (*at & 0xFFF8001F) | (((off / 4) & 0x3FFF) << 5);
     }
 
     // --- Floating-point load/store (scaled unsigned offset) ---

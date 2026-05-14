@@ -1874,18 +1874,19 @@ static bool translate_bc(Arm64Emitter &e, uint32_t op, uint32_t pc, int inst_cou
     }
 
     if (!ctr_relevant && cond_relevant) {
-        // Cond-only (beq/bne/blt/etc.): branch directly from extracted CR bit — saves 3 instr
+        // Cond-only (beq/bne/blt/etc.): use TBZ/TBNZ on the raw CR byte — saves UBFM + CMP
         int crfD  = bi / 4;
         int crbit = bi % 4;                                 // 0=LT,1=GT,2=EQ,3=SO
+        int bitpos = 3 - crbit;                             // bit position in CR byte (3=LT,2=GT,1=EQ,0=SO)
         e.LDRB(W1, PPC_PTR, OFF_CR + crfD);
-        e.UBFM_W(W1, W1, 3 - crbit, 3 - crbit);           // extract bit → W1[0]
-        e.CMP_W_IMM(W1, 0);
         if (lk) { e.MOV_W32(W0, pc + 4); e.STR_W(W0, PPC_PTR, OFF_LR); }
-        // cond_on_clear: taken when bit==0 (EQ), not_taken when bit!=0 (NE) → B.NE not_taken
-        uint32_t *nt = e.emit_B_COND_placeholder(cond_on_clear ? A64_NE : A64_EQ);
+        // cond_on_clear: taken when bit==0 → jump to not_taken when bit!=0 (TBNZ)
+        // cond_on_set:   taken when bit!=0 → jump to not_taken when bit==0 (TBZ)
+        uint32_t *nt = cond_on_clear ? e.emit_TBNZ_W_placeholder(W1, bitpos)
+                                     : e.emit_TBZ_W_placeholder(W1, bitpos);
         if (taken_fn)  emit_epilogue_chained(e, inst_count + 1, pc, taken_target, taken_fn);
         else           emit_epilogue(e, inst_count + 1, pc, taken_target);
-        e.patch_B_COND(nt, e.ptr());
+        e.patch_TBZ(nt, e.ptr());
         if (not_taken_fn) emit_epilogue_chained(e, inst_count + 1, pc, pc + 4, not_taken_fn);
         else              emit_epilogue(e, inst_count + 1, pc, pc + 4);
         return true;
@@ -1901,9 +1902,11 @@ static bool translate_bc(Arm64Emitter &e, uint32_t op, uint32_t pc, int inst_cou
     {
         int crfD  = bi / 4;
         int crbit = bi % 4;
+        int bitpos = 3 - crbit;
         e.LDRB(W1, PPC_PTR, OFF_CR + crfD);
-        e.UBFM_W(W1, W1, 3 - crbit, 3 - crbit);
-        e.CMP_W_IMM(W1, 0);
+        // Test the CR bit; if the condition is NOT met, zero out W0 (taken flag).
+        // TST_W_BITMASK sets Z=1 if bit is clear, Z=0 if bit is set.
+        e.TST_W_BITMASK(W1, (32 - bitpos) & 31, 0);   // immr=(32-bitpos)&31, imms=0 → single-bit mask
         e.CSEL_W(W0, W0, A64_WZR, cond_on_clear ? A64_EQ : A64_NE);
     }
 
