@@ -2397,7 +2397,76 @@ JitBlock *JitArm64::compile(uint32_t start_pc)
         int primary = op >> 26;
         bool handled = false;
 
-        switch (primary) {
+        // Peephole: cmp/cmpi/cmpli/cmpl immediately followed by bc on the same CR field.
+        // emit_cr_from_flags_* uses only CSET/LSL/ORR/LDR/STRB — none touch NZCV — so
+        // ARM flags from the CMP are still live after the CR write.  Branch directly from
+        // those flags instead of reloading the CR bit (saves 3 instructions per pair).
+        {
+            bool is_cmp = false, is_signed = false;
+            int  cmp_crfD = 0;
+            if (primary == 11) {
+                is_cmp = true; is_signed = true; cmp_crfD = (op >> 23) & 0x7;
+            } else if (primary == 10) {
+                is_cmp = true; is_signed = false; cmp_crfD = (op >> 23) & 0x7;
+            } else if (primary == 31) {
+                int xo = (op >> 1) & 0x3FF;
+                if (xo == 0 || xo == 32) {
+                    is_cmp = true; is_signed = (xo == 0); cmp_crfD = (op >> 23) & 0x7;
+                }
+            }
+            if (is_cmp) {
+                uint32_t next_op = ppc_read_opcode_at(pc + 4);
+                int  nbo         = (next_op >> 21) & 0x1F;
+                int  nbi         = (next_op >> 16) & 0x1F;
+                int  n_crfD      = nbi / 4;
+                int  n_crbit     = nbi % 4;
+                bool nctr_rel    = !(nbo & 0x04);
+                bool ncond_rel   = !(nbo & 0x10);
+                bool ncond_clr   = !(nbo & 0x08);
+                if ((next_op >> 26) == 16 && !nctr_rel && ncond_rel
+                    && !(next_op & 1) && !((next_op >> 1) & 1)
+                    && n_crfD == cmp_crfD && n_crbit <= 2)
+                {
+                    bool ok;
+                    if (primary == 11)      ok = translate_cmpi(e, op);
+                    else if (primary == 10) ok = translate_cmpli(e, op);
+                    else                    ok = translate_op31(e, op);
+                    if (ok) {
+                        // ARM NZCV still live from the CMP inside translate_cmp*
+                        static const int s_cond[3] = { A64_LT, A64_GT, A64_EQ };
+                        static const int u_cond[3] = { A64_CC, A64_HI, A64_EQ };
+                        int a64_cond = (is_signed ? s_cond : u_cond)[n_crbit];
+                        if (ncond_clr) a64_cond ^= 1;
+
+                        int32_t  bd               = (int32_t)((next_op & 0xFFFC) << 16) >> 16;
+                        uint32_t bc_pc            = pc + 4;
+                        uint32_t taken_target     = bc_pc + (uint32_t)bd;
+                        uint32_t not_taken_target = bc_pc + 4;
+
+                        void *taken_fn = nullptr, *not_taken_fn = nullptr;
+                        auto  it = m_cache.find(taken_target);
+                        if (it != m_cache.end()) taken_fn = (void *)it->second.fn;
+                        it = m_cache.find(not_taken_target);
+                        if (it != m_cache.end()) not_taken_fn = (void *)it->second.fn;
+
+                        // B.cond_inv skips the taken path; fall through to not-taken
+                        uint32_t *nt = e.emit_B_COND_placeholder(a64_cond ^ 1);
+                        if (taken_fn) emit_epilogue_chained(e, inst_count + 2, bc_pc, taken_target, taken_fn);
+                        else          emit_epilogue(e, inst_count + 2, bc_pc, taken_target);
+                        e.patch_B_COND(nt, e.ptr());
+                        if (not_taken_fn) emit_epilogue_chained(e, inst_count + 2, bc_pc, not_taken_target, not_taken_fn);
+                        else              emit_epilogue(e, inst_count + 2, bc_pc, not_taken_target);
+
+                        inst_count++;    // bc; loop bottom adds +1 for cmp
+                        pc       += 4;   // skip bc; loop bottom advances past cmp
+                        handled   = true;
+                        terminated = true;
+                    }
+                }
+            }
+        }
+
+        if (!handled) switch (primary) {
         case  3: handled = true; break;  // twi — trap word immediate, NOP in emulator
         case  7: handled = translate_mulli(e, op);      break;
         case  8: handled = translate_subfic(e, op);     break;
@@ -2637,7 +2706,7 @@ JitBlock *JitArm64::compile(uint32_t start_pc)
 
         default:
             break;
-        }
+        }  // if (!handled) switch
 
         if (!handled) {
             // Fallback: call interpreter for this instruction
