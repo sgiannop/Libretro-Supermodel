@@ -1584,8 +1584,7 @@ static bool translate_op31(Arm64Emitter &e, uint32_t op)
         e.LDR_W(W0, PPC_PTR, OFF_XER);
         e.LSR_W_IMM(W1, W0, 28);                   // W1 = SO:OV:CA:0 (bits 3:0)
         e.STRB(W1, PPC_PTR, OFF_CR + crfD);
-        e.MOV_W32(W2, ~0xF0000000U);               // mask off top nibble
-        e.AND_W(W0, W0, W2);
+        e.AND_W_BITMASK(W0, W0, 0, 27);            // clear top nibble (mask=0x0FFFFFFF)
         e.STR_W(W0, PPC_PTR, OFF_XER);
         return true;
     }
@@ -2291,8 +2290,7 @@ static bool translate_op63(Arm64Emitter &e, uint32_t op)
         int crfS = (op >> 18) & 0x7;
         e.LDR_W(W0, PPC_PTR, OFF_FPSCR);
         e.LSR_W_IMM(W1, W0, 28 - crfS * 4);
-        e.MOV_W32(W2, 0xF);
-        e.AND_W(W1, W1, W2);
+        e.AND_W_BITMASK(W1, W1, 0, 3);            // mask low nibble (0xF)
         e.STRB(W1, PPC_PTR, OFF_CR + crfD);
         return true;
     }
@@ -2763,9 +2761,9 @@ JitBlock *JitArm64::compile(uint32_t start_pc)
                     // Cond-only (beqlr / bnelr / etc.): branch directly from CR bit
                     int crfD2  = bi / 4;
                     int crbit2 = bi % 4;
+                    int bitpos2 = 3 - crbit2;
                     e.LDRB(W1, PPC_PTR, OFF_CR + crfD2);
-                    e.UBFM_W(W1, W1, 3-crbit2, 3-crbit2);
-                    e.CMP_W_IMM(W1, 0);               // flags preserved across LK write
+                    e.TST_W_BITMASK(W1, (32 - bitpos2) & 31, 0); // Z=1 if bit clear
                     if (lk) { e.MOV_W32(W1, pc+4); e.STR_W(W1, PPC_PTR, OFF_LR); }
                     e.AND_W_ALIGN4(W3, W3);
                     if (lk) {
@@ -2787,9 +2785,9 @@ JitBlock *JitArm64::compile(uint32_t start_pc)
 
                     int crfD2  = bi / 4;
                     int crbit2 = bi % 4;
+                    int bitpos2 = 3 - crbit2;
                     e.LDRB(W1, PPC_PTR, OFF_CR + crfD2);
-                    e.UBFM_W(W1, W1, 3-crbit2, 3-crbit2);
-                    e.CMP_W_IMM(W1, 0);
+                    e.TST_W_BITMASK(W1, (32 - bitpos2) & 31, 0);
                     e.CSEL_W(W0, W0, A64_WZR, cond_on_clear ? A64_EQ : A64_NE);
 
                     if (lk) { e.MOV_W32(W1, pc+4); e.STR_W(W1, PPC_PTR, OFF_LR); }
