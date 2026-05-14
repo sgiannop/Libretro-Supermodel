@@ -110,6 +110,11 @@ public:
     {
         emit(0x52800000 | ((uint32_t)imm16 << 5) | Wd);
     }
+    // MOVZ Wd, #imm16, LSL #16  (load upper halfword, zero lower)
+    void MOVZ_W_hi(int Wd, uint16_t imm16)
+    {
+        emit(0x52A00000 | ((uint32_t)imm16 << 5) | Wd);
+    }
     // MOVK Wd, #imm16, LSL #16
     void MOVK_W_hi(int Wd, uint16_t imm16)
     {
@@ -133,10 +138,13 @@ public:
     // Load a 32-bit constant into Wd (1-2 instructions)
     void MOV_W32(int Wd, uint32_t v)
     {
-        if ((int32_t)v < 0) {
-            // Negative: use MOVN for the upper bits, then MOVK for lower if needed
-            uint16_t lo = (uint16_t)v;
-            uint16_t hi = (uint16_t)(v >> 16);
+        uint16_t lo = (uint16_t)v;
+        uint16_t hi = (uint16_t)(v >> 16);
+        if (lo == 0) {
+            // Upper-half-only: single MOVZ with LSL#16 (covers 0, positive, and negative)
+            MOVZ_W_hi(Wd, hi);
+        } else if ((int32_t)v < 0) {
+            // Negative with non-zero lo: MOVN encodes ~v in upper bits
             if (hi == 0xFFFF) {
                 MOVN_W(Wd, (uint16_t)(~lo));   // MOVN Wd, ~lo = (0xFFFF0000 | lo)
             } else {
@@ -144,8 +152,8 @@ public:
                 MOVK_W_hi(Wd, hi);
             }
         } else {
-            MOVZ_W(Wd, (uint16_t)v);
-            if (v >> 16) MOVK_W_hi(Wd, (uint16_t)(v >> 16));
+            MOVZ_W(Wd, lo);
+            if (hi) MOVK_W_hi(Wd, hi);
         }
     }
 
@@ -220,6 +228,7 @@ public:
         emit(0x71000000 | (sh << 22) | ((imm12 & 0xFFF) << 10) | (Wn << 5) | Wd);
     }
     void CMP_W_IMM(int Wn, uint32_t imm12) { SUBS_W_IMM(A64_WZR, Wn, imm12); }
+    void CMN_W_IMM(int Wn, uint32_t imm12) { ADDS_W_IMM(A64_WZR, Wn, imm12); }
     void CMP_W(int Wn, int Wm)             { SUBS_W(A64_WZR, Wn, Wm); }
     void CMN_W(int Wn, int Wm)             { ADDS_W(A64_WZR, Wn, Wm); }
     void TST_W(int Wn, int Wm)             { ANDS_W(A64_WZR, Wn, Wm); }

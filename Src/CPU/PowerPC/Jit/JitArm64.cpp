@@ -732,13 +732,11 @@ static bool translate_cmpi(Arm64Emitter &e, uint32_t op)
     int16_t simm = (int16_t)(op & 0xFFFF);
 
     emit_load_gpr(e, W0, rA);
-    // Compare W0 with simm16 (signed)
-    if (simm >= 0 && (uint32_t)simm <= 4095)
+    if (simm >= 0 && (uint32_t)simm <= 4095) {
         e.CMP_W_IMM(W0, (uint32_t)simm);
-    else if (simm < 0 && (uint32_t)(-simm) <= 4095)
-        e.CMN_W(W0, W0);    // can't use CMN_IMM easily; load into reg
-    // Load operand into W1 and CMP
-    {
+    } else if (simm < 0 && (uint32_t)(-simm) <= 4095) {
+        e.CMN_W_IMM(W0, (uint32_t)(-simm));   // rA - simm = rA + |simm|
+    } else {
         e.MOV_W32(W1, (uint32_t)(int32_t)simm);
         e.CMP_W(W0, W1);
     }
