@@ -117,6 +117,8 @@ static int OFF_DEC;
 static int OFF_FPSCR;
 static int OFF_SRR0;
 static int OFF_SRR1;
+static int OFF_DEC_TRIGGER;
+static int OFF_INT_PENDING;
 
 static bool g_offsets_computed = false;
 
@@ -139,8 +141,10 @@ static void compute_offsets()
     OFF_SPRG   = OFF(sprg[0]);
     OFF_DEC    = OFF(dec);
     OFF_FPSCR  = OFF(fpscr);
-    OFF_SRR0   = OFF(srr0);
-    OFF_SRR1   = OFF(srr1);
+    OFF_SRR0        = OFF(srr0);
+    OFF_SRR1        = OFF(srr1);
+    OFF_DEC_TRIGGER = OFF(dec_trigger_cycle);
+    OFF_INT_PENDING = OFF(interrupt_pending);
 #undef OFF
     g_offsets_computed = true;
 }
@@ -471,6 +475,64 @@ static void emit_epilogue(Arm64Emitter &e, int inst_count, uint32_t last_pc, uin
     e.STR_W(W0, PPC_PTR, OFF_NPC);
 
     e.LDP_post(PPC_PTR, 30, A64_SP, 16);  // restore X19, X30
+    e.RET();
+}
+
+// Tail-call epilogue for a statically-known block target already compiled.
+// Updates icount/pc/npc, mirrors the dispatch-loop dec_trigger and interrupt
+// checks, then — if cycles remain and nothing is pending — restores the frame
+// and jumps directly to target_fn (no dispatch-loop roundtrip).
+// Both target_fn and this code must be within the same 16 MB code buffer. ✓
+//
+// Register usage: W4 = new_icount (preserved across the checks).
+static void emit_epilogue_chained(Arm64Emitter &e, int inst_count, uint32_t last_pc,
+                                   uint32_t next_pc, void *target_fn)
+{
+    // W4 = new_icount (keep for comparisons below)
+    e.LDR_W(W4, PPC_PTR, OFF_ICOUNT);
+    if (inst_count <= 4095)
+        e.SUB_W_IMM(W4, W4, (uint32_t)inst_count);
+    else {
+        e.MOV_W32(W0, (uint32_t)inst_count);
+        e.SUB_W(W4, W4, W0);
+    }
+    e.STR_W(W4, PPC_PTR, OFF_ICOUNT);
+
+    e.MOV_W32(W0, last_pc);
+    e.STR_W(W0, PPC_PTR, OFF_PC);
+    e.MOV_W32(W0, next_pc);
+    e.STR_W(W0, PPC_PTR, OFF_NPC);
+
+    // Mirror dispatch-loop: if (new_icount <= dec_trigger_cycle) interrupt_pending |= 2
+    e.LDR_W(W1, PPC_PTR, (uint32_t)OFF_DEC_TRIGGER);
+    e.CMP_W(W4, W1);                                         // W4 vs dec_trigger (signed)
+    uint32_t *dec_ok = e.emit_B_COND_placeholder(A64_GT);   // B.GT skip_dec_set
+    e.LDR_W(W0, PPC_PTR, (uint32_t)OFF_INT_PENDING);
+    e.MOV_W32(W1, 2);
+    e.ORR_W(W0, W0, W1);
+    e.STR_W(W0, PPC_PTR, (uint32_t)OFF_INT_PENDING);
+    e.patch_B_COND(dec_ok, e.ptr());
+
+    // Exit if cycles exhausted or fatal error or interrupt pending
+    e.CMP_W_IMM(W4, 0);
+    uint32_t *exit1 = e.emit_B_COND_placeholder(A64_LE);    // B.LE slow_exit
+    e.LDRB(W0, PPC_PTR, (uint32_t)OFF_FATAL);
+    uint32_t *exit2 = e.emit_CBNZ_W_placeholder(W0);        // CBNZ slow_exit
+    e.LDR_W(W0, PPC_PTR, (uint32_t)OFF_INT_PENDING);
+    uint32_t *exit3 = e.emit_CBNZ_W_placeholder(W0);        // CBNZ slow_exit
+
+    // Fast path: tail call; X0 = PPC_REGS* for callee prologue
+    e.MOV_X(0, PPC_PTR);
+    e.LDP_post(PPC_PTR, 30, A64_SP, 16);
+    int64_t off = (int64_t)target_fn - (int64_t)e.ptr();
+    e.B((int)off);
+
+    // Slow exit: return to dispatch loop
+    uint32_t *slow_exit = e.ptr();
+    e.patch_B_COND(exit1, slow_exit);
+    e.patch_CBZ(exit2, slow_exit);
+    e.patch_CBZ(exit3, slow_exit);
+    e.LDP_post(PPC_PTR, 30, A64_SP, 16);
     e.RET();
 }
 
@@ -1557,7 +1619,9 @@ static bool translate_op31_store_xu(Arm64Emitter &e, int rS, int rA, int rB, voi
 
 // Primary opcode 16: bc BO, BI, BD [, AA] [, LK]  — fully inlined
 // Returns true if block is terminated (always for bc).
-static bool translate_bc(Arm64Emitter &e, uint32_t op, uint32_t pc, int inst_count)
+// taken_fn / not_taken_fn: if non-null, use chained epilogue for that path.
+static bool translate_bc(Arm64Emitter &e, uint32_t op, uint32_t pc, int inst_count,
+                          void *taken_fn = nullptr, void *not_taken_fn = nullptr)
 {
     int bo = (op >> 21) & 0x1F;
     int bi = (op >> 16) & 0x1F;
@@ -1602,18 +1666,24 @@ static bool translate_bc(Arm64Emitter &e, uint32_t op, uint32_t pc, int inst_cou
     uint32_t *not_taken_patch = e.emit_CBZ_W_placeholder(W0);
 
     // Taken path
-    emit_epilogue(e, inst_count + 1, pc, taken_target);
+    if (taken_fn)
+        emit_epilogue_chained(e, inst_count + 1, pc, taken_target, taken_fn);
+    else
+        emit_epilogue(e, inst_count + 1, pc, taken_target);
 
     // Not-taken path (patch CBZ here)
     e.patch_CBZ(not_taken_patch, e.ptr());
-    emit_epilogue(e, inst_count + 1, pc, pc + 4);
+    if (not_taken_fn)
+        emit_epilogue_chained(e, inst_count + 1, pc, pc + 4, not_taken_fn);
+    else
+        emit_epilogue(e, inst_count + 1, pc, pc + 4);
 
     return true;
 }
 
 // Primary opcode 18: b BD [, AA] [, LK]
-// Returns the branch target (or -1 if relative, needs pc)
-static uint32_t translate_b(Arm64Emitter &e, uint32_t op, uint32_t pc, int inst_count)
+// Returns the branch target; emits LR update if LK.
+static uint32_t translate_b(Arm64Emitter &e, uint32_t op, uint32_t pc)
 {
     int aa = (op >> 1) & 1;    // absolute address
     int lk = op & 1;            // link (bl)
@@ -1626,112 +1696,6 @@ static uint32_t translate_b(Arm64Emitter &e, uint32_t op, uint32_t pc, int inst_
         e.STR_W(W0, PPC_PTR, OFF_LR);
     }
     return target;
-}
-
-// check_condition helper: returns true if we can statically determine branch taken/not
-// Returns -1 = unknown, 0 = not taken, 1 = taken
-static int bc_cond_static(uint32_t op)
-{
-    int bo = (op >> 21) & 0x1F;
-    // BO[2]=1 means "ignore CTR", BO[0]=1 means "ignore condition"
-    bool ctr_ok_static = (bo & 0x04) != 0;   // don't decrement/check CTR
-    bool cond_ok_static = (bo & 0x10) != 0;  // don't check condition bit
-    if (ctr_ok_static && cond_ok_static) return 1; // unconditional = always taken
-    return -1;
-}
-
-// Primary opcode 16: bc BO, BI, BD [, AA] [, LK]
-// These can have complex runtime-dependent behaviour, so we emit a
-// runtime-evaluated conditional branch that *exits the block early* on taken.
-// The block continues if not taken (fall-through).
-// Returns true if this instruction MUST terminate the block (branch taken statically)
-static bool translate_bc_terminating(Arm64Emitter &e, uint32_t op, uint32_t pc,
-                                     uint32_t *taken_target_out)
-{
-    int bo = (op >> 21) & 0x1F;
-    int bi = (op >> 16) & 0x1F;
-    int aa = (op >> 1) & 1;
-    int lk = op & 1;
-    int32_t bd = (int32_t)((op & 0xFFFC) << 16) >> 16;  // sign-extend 14-bit
-
-    uint32_t taken_target = aa ? (uint32_t)bd : (pc + (uint32_t)bd);
-    *taken_target_out = taken_target;
-
-    int crfD = bi / 4;
-    int crbit = bi % 4;  // bit within cr field (bit 3=LT, 2=GT, 1=EQ, 0=SO in PPC ordering)
-    // In our cr[] array: cr[field] bits: bit3=LT, bit2=GT, bit1=EQ, bit0=SO
-    int crbit_mask = 1 << (3 - crbit);   // convert PPC bit number to our bit mask
-
-    bool ctr_relevant = !(bo & 0x04);    // BO[2]=0: CTR must be checked
-    bool cond_relevant = !(bo & 0x10);   // BO[0]=0: condition bit must be checked
-    bool ctr_zero      = !(bo & 0x02);   // BO[1]=1: branch if CTR != 0 (BO[1]=0 → if CTR == 0)
-    bool cond_true     = !(bo & 0x08);   // BO[3]=0: branch if bit SET
-
-    // CTR decrement (if required)
-    if (ctr_relevant) {
-        e.LDR_W(W0, PPC_PTR, OFF_CTR);
-        e.SUB_W_IMM(W0, W0, 1);
-        e.STR_W(W0, PPC_PTR, OFF_CTR);
-    }
-
-    if (lk) {
-        e.MOV_W32(W1, pc + 4);
-        e.STR_W(W1, PPC_PTR, OFF_LR);
-    }
-
-    // Build combined condition: emit code that tests the condition and skips the taken-branch
-    // epilogue if condition is false.
-    //
-    // Strategy: emit code that jumps to the taken path if condition is true,
-    // then fall through to not-taken. Since we're a block-terminator, both paths
-    // emit their own epilogues.
-
-    // Check CTR condition
-    uint32_t *skip_taken_patch = nullptr;
-
-    if (ctr_relevant) {
-        // W0 still holds new CTR value
-        if (ctr_zero) {
-            // Branch if CTR == 0 after decrement
-            skip_taken_patch = e.emit_CBNZ_W_placeholder(W0);   // skip if CTR != 0
-        } else {
-            // Branch if CTR != 0 after decrement
-            skip_taken_patch = e.emit_CBZ_W_placeholder(W0);    // skip if CTR == 0
-        }
-    }
-
-    if (cond_relevant) {
-        // Load CR byte
-        e.LDRB(W0, PPC_PTR, OFF_CR + crfD);
-        e.AND_W(W0, W0, crbit_mask);    // mask the relevant bit
-        if (cond_true) {
-            // Branch if bit SET: if W0 == 0 → not taken → skip taken
-            // We need to AND the existing skip condition...
-            // For simplicity: if CTR condition already patched, this gets complex.
-            // For v1: emit a secondary skip branch
-            uint32_t *skip2 = e.emit_CBZ_W_placeholder(W0);
-            // (taken path follows below)
-            // If we need to patch skip_taken_patch to here, do so:
-            if (skip_taken_patch) e.patch_CBZ(skip_taken_patch, e.ptr());
-            // Now skip2 is valid: emit the taken path after this
-            // This is getting complicated - taken path needs to be emitted here
-            // Actually let me restructure: emit taken epilogue here, then patch skip2 past it.
-            // ... but we don't yet know inst_count for the epilogue.
-            // This requires a refactor. For now, fall back for bc.
-            (void)skip2;
-            return false;   // FALLBACK: let interpreter handle bc
-        } else {
-            // Branch if bit CLEAR
-            uint32_t *skip2 = e.emit_CBNZ_W_placeholder(W0);
-            if (skip_taken_patch) e.patch_CBZ(skip_taken_patch, e.ptr());
-            (void)skip2;
-            return false;   // FALLBACK for now
-        }
-    }
-
-    // All conditions passed: emit taken epilogue
-    (void)ctr_relevant; (void)cond_relevant; (void)cond_true; (void)ctr_zero;
-    return false;   // Let the dispatcher handle bc completely for v1
 }
 
 // bclr: primary 19, subop 16 (branch to LR)
@@ -2316,16 +2280,38 @@ JitBlock *JitArm64::compile(uint32_t start_pc)
         }
 
         case 16: {
-            // bc: fully inlined conditional branch — always terminates the block
-            handled    = translate_bc(e, op, pc, inst_count);
+            // bc: fully inlined conditional branch — always terminates the block.
+            // Look up taken/not-taken targets for block chaining.
+            {
+                int32_t bd = (int32_t)((op & 0xFFFC) << 16) >> 16;
+                int aa16   = (op >> 1) & 1;
+                uint32_t taken_target   = aa16 ? (uint32_t)bd : (pc + (uint32_t)bd);
+                uint32_t not_taken_target = pc + 4;
+                void *taken_fn     = nullptr;
+                void *not_taken_fn = nullptr;
+                auto it = m_cache.find(taken_target);
+                if (it != m_cache.end()) taken_fn = (void *)it->second.fn;
+                it = m_cache.find(not_taken_target);
+                if (it != m_cache.end()) not_taken_fn = (void *)it->second.fn;
+                handled = translate_bc(e, op, pc, inst_count, taken_fn, not_taken_fn);
+            }
             terminated = true;
             break;
         }
 
         case 18: {
-            // b / bl / ba / bla
-            uint32_t target = translate_b(e, op, pc, inst_count);
-            emit_epilogue(e, inst_count + 1, pc, target);
+            // b / bl / ba / bla.  Chain non-linking branches to already-compiled targets.
+            uint32_t target = translate_b(e, op, pc);
+            int lk18 = op & 1;
+            void *target_fn = nullptr;
+            if (!lk18) {
+                auto it = m_cache.find(target);
+                if (it != m_cache.end()) target_fn = (void *)it->second.fn;
+            }
+            if (target_fn)
+                emit_epilogue_chained(e, inst_count + 1, pc, target, target_fn);
+            else
+                emit_epilogue(e, inst_count + 1, pc, target);
             terminated = true;
             handled = true;
             break;
