@@ -792,19 +792,56 @@ static bool translate_rlwinm(Arm64Emitter &e, uint32_t op)
     int me = (op >> 1)  & 0x1F;
     int rc = op & 1;
 
-    // Compute the mask (PPC bit 0 = MSB, bit 31 = LSB)
+    // Peephole: identity (sh=0, mb=0, me=31 → mask=all, no rotate)
+    if (sh == 0 && mb == 0 && me == 31) {
+        if (rc == 0 && rA == rS) return true;
+        emit_load_gpr(e, W0, rS);
+        emit_store_gpr(e, W0, rA);
+        if (rc) emit_set_cr0_from_W0(e);
+        return true;
+    }
+
+    // Peephole: logical shift left — ROTL(rS,sh) & ~((1<<sh)-1) = rS << sh
+    // Condition: mb==0, me==31-sh  (mask covers [sh..31], lower sh bits zeroed)
+    if (sh > 0 && mb == 0 && me == 31 - sh) {
+        emit_load_gpr(e, W0, rS);
+        e.LSL_W_IMM(W0, W0, sh);
+        emit_store_gpr(e, W0, rA);
+        if (rc) emit_set_cr0_from_W0(e);
+        return true;
+    }
+
+    // Peephole: UBFX — me==31 means result starts at bit 0; when mb>=32-sh the source
+    // field [32-sh .. 63-sh-mb] of rS doesn't wrap, encodable as UBFM(immr=32-sh, imms=63-sh-mb).
+    // Covers LSR (mb==32-sh) and narrower extracts.
+    if (sh > 0 && me == 31 && mb >= 32 - sh) {
+        emit_load_gpr(e, W0, rS);
+        e.UBFM_W(W0, W0, 32 - sh, 63 - sh - mb);
+        emit_store_gpr(e, W0, rA);
+        if (rc) emit_set_cr0_from_W0(e);
+        return true;
+    }
+
+    // Peephole: sh=0, me==31, mb>0 — zero the upper mb bits via UBFX from bit 0
+    if (sh == 0 && me == 31 && mb > 0) {
+        emit_load_gpr(e, W0, rS);
+        e.UBFM_W(W0, W0, 0, 31 - mb);   // extract bits [0..31-mb], zero [32-mb..31]
+        emit_store_gpr(e, W0, rA);
+        if (rc) emit_set_cr0_from_W0(e);
+        return true;
+    }
+
+    // General path: compute mask, rotate, AND
     // In standard bit ordering (bit 0 = LSB):
     //   mask spans bits [31-mb .. 31-me]  if mb <= me
     //   mask = ~0 & complement of gap    if mb >  me (wrapping)
     uint32_t mask;
     if (mb <= me) {
-        // Contiguous range: bits 31-mb down to 31-me
-        int start = 31 - me;    // LSB of mask (in standard notation)
-        int end   = 31 - mb;    // MSB of mask
+        int start = 31 - me;
+        int end   = 31 - mb;
         int width = end - start + 1;
         mask = ((width == 32) ? 0xFFFFFFFFu : ((1u << width) - 1u)) << start;
     } else {
-        // Wrapping range
         int start = 31 - mb + 1;
         int end   = 31 - me - 1;
         int width = end - start + 1;
@@ -1076,7 +1113,14 @@ static bool translate_op31(Arm64Emitter &e, uint32_t op)
 
     // or/mr rA, rS, rB  (note: PPC uses rD/rA/rB encoding, but or uses rS in rD field)
     case 444:
-        emit_load_gpr(e, W0, rD);    // rS is in rD field
+        if (rD == rB) {  // mr rA, rS: rS | rS = rS
+            if (rc == 0 && rA == rD) return true;
+            emit_load_gpr(e, W0, rD);
+            emit_store_gpr(e, W0, rA);
+            if (rc) emit_set_cr0_from_W0(e);
+            return true;
+        }
+        emit_load_gpr(e, W0, rD);
         emit_load_gpr(e, W1, rB);
         e.ORR_W(W0, W0, W1);
         emit_store_gpr(e, W0, rA);
@@ -1085,6 +1129,12 @@ static bool translate_op31(Arm64Emitter &e, uint32_t op)
 
     // xor rA, rS, rB
     case 316:
+        if (rD == rB) {  // xor with self = 0
+            e.MOV_W32(W0, 0);
+            emit_store_gpr(e, W0, rA);
+            if (rc) emit_set_cr0_from_W0(e);
+            return true;
+        }
         emit_load_gpr(e, W0, rD);
         emit_load_gpr(e, W1, rB);
         e.EOR_W(W0, W0, W1);
@@ -1094,6 +1144,13 @@ static bool translate_op31(Arm64Emitter &e, uint32_t op)
 
     // and rA, rS, rB
     case 28:
+        if (rD == rB) {  // and with self = identity (mr)
+            if (rc == 0 && rA == rD) return true;
+            emit_load_gpr(e, W0, rD);
+            emit_store_gpr(e, W0, rA);
+            if (rc) emit_set_cr0_from_W0(e);
+            return true;
+        }
         emit_load_gpr(e, W0, rD);
         emit_load_gpr(e, W1, rB);
         e.AND_W(W0, W0, W1);
@@ -1103,6 +1160,13 @@ static bool translate_op31(Arm64Emitter &e, uint32_t op)
 
     // nor rA, rS, rB
     case 124:
+        if (rD == rB) {  // nor rA, rS, rS = ~rS
+            emit_load_gpr(e, W0, rD);
+            e.MVN_W(W0, W0);
+            emit_store_gpr(e, W0, rA);
+            if (rc) emit_set_cr0_from_W0(e);
+            return true;
+        }
         emit_load_gpr(e, W0, rD);
         emit_load_gpr(e, W1, rB);
         e.ORR_W(W0, W0, W1);
@@ -1113,6 +1177,12 @@ static bool translate_op31(Arm64Emitter &e, uint32_t op)
 
     // andc rA, rS, rB  (rA = rS & ~rB)
     case 60:
+        if (rD == rB) {  // rS & ~rS = 0
+            e.MOV_W32(W0, 0);
+            emit_store_gpr(e, W0, rA);
+            if (rc) emit_set_cr0_from_W0(e);
+            return true;
+        }
         emit_load_gpr(e, W0, rD);
         emit_load_gpr(e, W1, rB);
         e.BIC_W(W0, W0, W1);
@@ -1122,6 +1192,12 @@ static bool translate_op31(Arm64Emitter &e, uint32_t op)
 
     // orc rA, rS, rB  (rA = rS | ~rB)
     case 412:
+        if (rD == rB) {  // rS | ~rS = 0xFFFFFFFF
+            e.MOV_W32(W0, 0xFFFFFFFFu);
+            emit_store_gpr(e, W0, rA);
+            if (rc) emit_set_cr0_from_W0(e);
+            return true;
+        }
         emit_load_gpr(e, W0, rD);
         emit_load_gpr(e, W1, rB);
         e.ORN_W(W0, W0, W1);
@@ -1131,6 +1207,13 @@ static bool translate_op31(Arm64Emitter &e, uint32_t op)
 
     // nand rA, rS, rB
     case 476:
+        if (rD == rB) {  // ~(rS & rS) = ~rS
+            emit_load_gpr(e, W0, rD);
+            e.MVN_W(W0, W0);
+            emit_store_gpr(e, W0, rA);
+            if (rc) emit_set_cr0_from_W0(e);
+            return true;
+        }
         emit_load_gpr(e, W0, rD);
         emit_load_gpr(e, W1, rB);
         e.AND_W(W0, W0, W1);
@@ -1141,6 +1224,12 @@ static bool translate_op31(Arm64Emitter &e, uint32_t op)
 
     // eqv rA, rS, rB  (XNOR: rA = ~(rS ^ rB))
     case 284:
+        if (rD == rB) {  // ~(rS ^ rS) = ~0 = 0xFFFFFFFF
+            e.MOV_W32(W0, 0xFFFFFFFFu);
+            emit_store_gpr(e, W0, rA);
+            if (rc) emit_set_cr0_from_W0(e);
+            return true;
+        }
         emit_load_gpr(e, W0, rD);
         emit_load_gpr(e, W1, rB);
         e.EOR_W(W0, W0, W1);
