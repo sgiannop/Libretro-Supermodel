@@ -251,6 +251,33 @@ static void emit_store_fpr(Arm64Emitter &e, int src_Dd, int ppc_fpr)
     e.STR_D(src_Dd, PPC_PTR, (uint32_t)off);
 }
 
+// Check if a 32-bit mask is a single contiguous run of 1-bits (possibly wrapping) and, if so,
+// compute the ARM64 bitmask immediate fields immr and imms.
+// Returns false for 0 or 0xFFFFFFFF (all-zeros and all-ones are not encodable).
+// Formula: immr = (32 - run_start) & 31,  imms = popcount(mask) - 1.
+// run_start is the lowest bit of the run for non-wrapping masks, or (gap_end+1) for wrapping ones.
+static bool bitmask_imm32(uint32_t mask, int *immr_out, int *imms_out)
+{
+    if (mask == 0 || mask == 0xFFFFFFFFu) return false;
+    int ones = __builtin_popcount(mask);
+    // A valid bitmask has exactly 2 bit-transitions in a circular scan.
+    // Count 0→1 transitions (= number of separate runs of 1s) by checking each edge.
+    int runs = __builtin_popcount(mask & ~(mask >> 1 | mask << 31));
+    if (runs != 1) return false;  // more than one disjoint run
+
+    bool wrapping = (mask & 1u) && (mask >> 31);
+    int run_start;
+    if (!wrapping) {
+        run_start = __builtin_ctz(mask);
+    } else {
+        int k = __builtin_ctz(~mask);   // start of the 0-gap
+        run_start = k + (32 - ones);    // first 1-bit of the upper portion
+    }
+    *immr_out = (32 - run_start) & 31;
+    *imms_out = ones - 1;
+    return true;
+}
+
 // Emit: Wd = sign_extend_16(simm16)  [1-2 instructions]
 static void emit_load_simm16(Arm64Emitter &e, int Wd, int16_t simm)
 {
@@ -614,14 +641,22 @@ static bool translate_addis(Arm64Emitter &e, uint32_t op)
 {
     int rD   = (op >> 21) & 0x1F;
     int rA   = (op >> 16) & 0x1F;
-    uint32_t imm = (uint32_t)(int16_t)(op & 0xFFFF) << 16;
+    int16_t simm = (int16_t)(op & 0xFFFF);
+    uint32_t imm = (uint32_t)simm << 16;
 
     if (rA == 0) {
         e.MOV_W32(W0, imm);
     } else {
         emit_load_gpr(e, W0, rA);
-        e.MOV_W32(W1, imm);
-        e.ADD_W(W0, W0, W1);
+        // For |SIMM| in [1,255]: SIMM<<16 fits in ADD/SUB imm12<<12 (sh=1) → 1 instruction
+        if (simm > 0 && simm <= 255) {
+            e.ADD_W_IMM(W0, W0, (uint32_t)simm << 4, 1);
+        } else if (simm < 0 && simm >= -255) {
+            e.SUB_W_IMM(W0, W0, (uint32_t)(-simm) << 4, 1);
+        } else {
+            e.MOV_W32(W1, imm);
+            e.ADD_W(W0, W0, W1);
+        }
     }
     emit_store_gpr(e, W0, rD);
     return true;
@@ -708,8 +743,13 @@ static bool translate_andi_dot(Arm64Emitter &e, uint32_t op)
     uint32_t uimm = op & 0xFFFF;
 
     emit_load_gpr(e, W0, rS);
-    e.MOV_W32(W1, uimm);
-    e.ANDS_W(W0, W0, W1);          // sets Z/N flags → skip CMP in CR update
+    int immr, imms;
+    if (bitmask_imm32(uimm, &immr, &imms)) {
+        e.ANDS_W_BITMASK(W0, W0, immr, imms);
+    } else {
+        e.MOV_W32(W1, uimm);
+        e.ANDS_W(W0, W0, W1);
+    }
     emit_store_gpr(e, W0, rA);
     emit_cr_from_flags_signed(e, 0);
     return true;
@@ -723,8 +763,13 @@ static bool translate_andis_dot(Arm64Emitter &e, uint32_t op)
     uint32_t uimm = (op & 0xFFFF) << 16;
 
     emit_load_gpr(e, W0, rS);
-    e.MOV_W32(W1, uimm);
-    e.ANDS_W(W0, W0, W1);          // sets Z/N flags → skip CMP in CR update
+    int immr, imms;
+    if (bitmask_imm32(uimm, &immr, &imms)) {
+        e.ANDS_W_BITMASK(W0, W0, immr, imms);
+    } else {
+        e.MOV_W32(W1, uimm);
+        e.ANDS_W(W0, W0, W1);
+    }
     emit_store_gpr(e, W0, rA);
     emit_cr_from_flags_signed(e, 0);
     return true;
@@ -846,36 +891,30 @@ static bool translate_rlwinm(Arm64Emitter &e, uint32_t op)
         return true;
     }
 
-    // General path: compute mask, rotate, AND
-    // In standard bit ordering (bit 0 = LSB):
-    //   mask spans bits [31-mb .. 31-me]  if mb <= me
-    //   mask = ~0 & complement of gap    if mb >  me (wrapping)
-    uint32_t mask;
-    if (mb <= me) {
-        int start = 31 - me;
-        int end   = 31 - mb;
-        int width = end - start + 1;
-        mask = ((width == 32) ? 0xFFFFFFFFu : ((1u << width) - 1u)) << start;
-    } else {
-        int start = 31 - mb + 1;
-        int end   = 31 - me - 1;
-        int width = end - start + 1;
-        uint32_t gap = ((width <= 0) ? 0u : (((width == 32) ? 0xFFFFFFFFu : (1u << width) - 1u) << start));
-        mask = ~gap;
-    }
+    // General path: rotate then mask.  The mask is always a bitmask immediate (single
+    // contiguous run of 1-bits, possibly wrapping).  For mb<=me: immr=(me+1)&31, imms=me-mb.
+    // For mb>me (wrapping): same immr, imms=32+me-mb.  All-ones case (mb==me+1 for wrapping,
+    // mb=0&&me=31 for non-wrapping) is filtered by the identity peephole or the mb==me+1 check.
+    int immr_bm = (me + 1) & 31;
+    int imms_bm = (mb <= me) ? (me - mb) : (32 + me - mb);
+    bool need_and = (mb > me) ? (mb != me + 1) : true;  // mb==me+1 → gap=0 → mask=all-ones
 
     emit_load_gpr(e, W0, rS);
 
     if (sh > 0)
         e.ROR_W_IMM(W0, W0, 32 - sh);   // ROTL32(rS, sh) = ROR32(rS, 32-sh)
 
-    if (mask != 0xFFFFFFFFu) {
-        e.MOV_W32(W1, mask);
-        e.AND_W(W0, W0, W1);
+    if (need_and) {
+        if (rc) {
+            e.ANDS_W_BITMASK(W0, W0, immr_bm, imms_bm);  // sets N/Z, V=C=0 → emit_cr_from_flags_signed safe
+            emit_store_gpr(e, W0, rA);
+            emit_cr_from_flags_signed(e, 0);
+            return true;
+        }
+        e.AND_W_BITMASK(W0, W0, immr_bm, imms_bm);
     }
 
     emit_store_gpr(e, W0, rA);
-
     if (rc) emit_set_cr0_from_W0(e);
     return true;
 }
@@ -909,21 +948,24 @@ static bool translate_rlwimi(Arm64Emitter &e, uint32_t op)
         return true;
     }
 
-    // mb > me: wrapping mask — fall through to mask/AND/ORR path
-    int    wstart = 31 - mb + 1;
-    int    wend   = 31 - me - 1;
-    int    wwidth = wend - wstart + 1;
-    uint32_t gap  = (wwidth <= 0) ? 0u : (((wwidth == 32) ? 0xFFFFFFFFu : (1u << wwidth) - 1u) << wstart);
-    uint32_t mask = ~gap;
+    // mb > me: wrapping mask — bitmask immediates for both mask and ~mask.
+    // mask (wrapping): immr=(me+1)&31, imms=32+me-mb.
+    // ~mask (gap, non-wrapping): immr=mb&31, imms=mb-me-2.
+    // When mb==me+1 the gap is empty and mask=all-ones: result = ROTL(rS, sh) entirely.
+    bool wrap_full = (mb == me + 1);
+    int immr_m  = (me + 1) & 31;
+    int imms_m  = 32 + me - mb;    // mask
+    int immr_nm = mb & 31;
+    int imms_nm = mb - me - 2;     // ~mask (only valid when mb > me+1)
 
     emit_load_gpr(e, W0, rS);
     if (sh > 0) e.ROR_W_IMM(W0, W0, 32 - sh);
-    e.MOV_W32(W1, mask);
-    e.AND_W(W0, W0, W1);
-    emit_load_gpr(e, W2, rA);
-    e.MOV_W32(W3, ~mask);
-    e.AND_W(W2, W2, W3);
-    e.ORR_W(W0, W0, W2);
+    if (!wrap_full) {
+        emit_load_gpr(e, W2, rA);
+        e.AND_W_BITMASK(W0, W0, immr_m,  imms_m);   // W0 = rotated_rS & mask
+        e.AND_W_BITMASK(W2, W2, immr_nm, imms_nm);  // W2 = rA & ~mask
+        e.ORR_W(W0, W0, W2);
+    }
     emit_store_gpr(e, W0, rA);
     if (rc) emit_set_cr0_from_W0(e);
     return true;
@@ -939,40 +981,26 @@ static bool translate_rlwnm(Arm64Emitter &e, uint32_t op)
     int me = (op >> 1)  & 0x1F;
     int rc = op & 1;
 
-    uint32_t mask;
-    if (mb <= me) {
-        int start = 31 - me;
-        int end   = 31 - mb;
-        int width = end - start + 1;
-        mask = ((width == 32) ? 0xFFFFFFFFu : ((1u << width) - 1u)) << start;
-    } else {
-        int start = 31 - mb + 1;
-        int end   = 31 - me - 1;
-        int width = end - start + 1;
-        uint32_t gap = ((width <= 0) ? 0u : (((width == 32) ? 0xFFFFFFFFu : (1u << width) - 1u) << start));
-        mask = ~gap;
-    }
+    int immr_bm = (me + 1) & 31;
+    int imms_bm = (mb <= me) ? (me - mb) : (32 + me - mb);
+    bool need_and = (mb > me) ? (mb != me + 1) : (mb != 0 || me != 31);
 
     emit_load_gpr(e, W0, rS);
     emit_load_gpr(e, W1, rB);
     e.NEG_W(W2, W1);                // W2 = -rB; RORV uses W2[4:0] = (32-rB)[4:0]
     e.ROR_W(W0, W0, W2);            // W0 = ROTL(rS, rB[4:0])
 
-    if (mask != 0xFFFFFFFFu) {
-        e.MOV_W32(W1, mask);
+    if (need_and) {
         if (rc) {
-            e.ANDS_W(W0, W0, W1);       // sets Z/N flags → skip CMP in CR update
-        } else {
-            e.AND_W(W0, W0, W1);
+            e.ANDS_W_BITMASK(W0, W0, immr_bm, imms_bm);
+            emit_store_gpr(e, W0, rA);
+            emit_cr_from_flags_signed(e, 0);
+            return true;
         }
+        e.AND_W_BITMASK(W0, W0, immr_bm, imms_bm);
     }
     emit_store_gpr(e, W0, rA);
-    if (rc) {
-        if (mask != 0xFFFFFFFFu)
-            emit_cr_from_flags_signed(e, 0);  // flags set by ANDS_W above
-        else
-            emit_set_cr0_from_W0(e);          // full rotate, need CMP
-    }
+    if (rc) emit_set_cr0_from_W0(e);
     return true;
 }
 
