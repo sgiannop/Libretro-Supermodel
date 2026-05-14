@@ -369,12 +369,11 @@ static void emit_load_xer_ca(Arm64Emitter &e, int Wdst)
     e.UBFM_W(Wdst, Wdst, 29, 29);   // extract bit 29 → bit 0
 }
 
-// Set ARM carry flag from Wca (0 or 1). Clobbers Wtmp.
-// After this call: ARM C = Wca.
-static void emit_arm_carry_from_W(Arm64Emitter &e, int Wca, int Wtmp)
+// Set ARM carry flag from Wca (0 or 1).  CMP Wca,#1 = SUBS WZR,Wca,#1:
+// C=0 (borrow) when Wca=0, C=1 (no borrow) when Wca=1.
+static void emit_arm_carry_from_W(Arm64Emitter &e, int Wca)
 {
-    e.MVN_W(Wtmp, A64_WZR);          // Wtmp = 0xFFFFFFFF
-    e.ADDS_W(A64_WZR, Wca, Wtmp);    // 0+0xFFFFFFFF=no carry, 1+0xFFFFFFFF=carry
+    e.CMP_W_IMM(Wca, 1);
 }
 
 // After ADDS_W/ADCS_W/SUBS_W/SBCS_W, write ARM carry flag → XER.CA.
@@ -1088,7 +1087,7 @@ static bool translate_op31(Arm64Emitter &e, uint32_t op)
         emit_load_gpr(e, W0, rA);
         emit_load_gpr(e, W1, rB);
         emit_load_xer_ca(e, W2);        // W2 = XER.CA
-        emit_arm_carry_from_W(e, W2, W3); // ARM C = XER.CA; clobbers W3
+        emit_arm_carry_from_W(e, W2);   // ARM C = XER.CA
         e.ADCS_W(W0, W0, W1);           // W0 = rA + rB + C; new ARM C = carry
         emit_store_gpr(e, W0, rD);
         emit_update_xer_ca(e);
@@ -1100,7 +1099,7 @@ static bool translate_op31(Arm64Emitter &e, uint32_t op)
     case 202:
         emit_load_gpr(e, W0, rA);
         emit_load_xer_ca(e, W1);
-        emit_arm_carry_from_W(e, W1, W2);
+        emit_arm_carry_from_W(e, W1);
         e.ADCS_W(W0, W0, A64_WZR);
         emit_store_gpr(e, W0, rD);
         emit_update_xer_ca(e);
@@ -1112,7 +1111,7 @@ static bool translate_op31(Arm64Emitter &e, uint32_t op)
     case 234:
         emit_load_gpr(e, W0, rA);
         emit_load_xer_ca(e, W1);
-        emit_arm_carry_from_W(e, W1, W2);
+        emit_arm_carry_from_W(e, W1);
         e.MVN_W(W1, A64_WZR);           // W1 = 0xFFFFFFFF
         e.ADCS_W(W0, W0, W1);           // rA + 0xFFFFFFFF + CA
         emit_store_gpr(e, W0, rD);
@@ -1148,7 +1147,7 @@ static bool translate_op31(Arm64Emitter &e, uint32_t op)
         emit_load_gpr(e, W0, rB);
         emit_load_gpr(e, W1, rA);
         emit_load_xer_ca(e, W2);
-        emit_arm_carry_from_W(e, W2, W3);
+        emit_arm_carry_from_W(e, W2);
         e.SBCS_W(W0, W0, W1);           // W0 = rB - rA - NOT(C) = ~rA + rB + CA
         emit_store_gpr(e, W0, rD);
         emit_update_xer_ca(e);
@@ -1160,7 +1159,7 @@ static bool translate_op31(Arm64Emitter &e, uint32_t op)
     case 200:
         emit_load_gpr(e, W1, rA);
         emit_load_xer_ca(e, W2);
-        emit_arm_carry_from_W(e, W2, W3);
+        emit_arm_carry_from_W(e, W2);
         e.SBCS_W(W0, A64_WZR, W1);
         emit_store_gpr(e, W0, rD);
         emit_update_xer_ca(e);
@@ -1173,7 +1172,7 @@ static bool translate_op31(Arm64Emitter &e, uint32_t op)
     case 232:
         emit_load_gpr(e, W1, rA);
         emit_load_xer_ca(e, W2);
-        emit_arm_carry_from_W(e, W2, W3);
+        emit_arm_carry_from_W(e, W2);
         e.MVN_W(W0, A64_WZR);           // W0 = 0xFFFFFFFF
         e.SBCS_W(W0, W0, W1);
         emit_store_gpr(e, W0, rD);
@@ -1367,8 +1366,7 @@ static bool translate_op31(Arm64Emitter &e, uint32_t op)
         e.MVN_W(W4, A64_WZR);           // W4 = 0xFFFFFFFF [large-shift mask]
         e.CSEL_W(W3, W4, W3, A64_CS);  // W3 = (sh >= 32) ? 0xFFFFFFFF : mask  [no CMP needed]
 
-        e.TST_W(W0, W0);                // set N if rS < 0
-        e.CSET_W(W4, A64_MI);           // W4 = 1 if rS < 0
+        e.LSR_W_IMM(W4, W0, 31);        // W4 = (rS < 0) ? 1 : 0
         e.ANDS_W(W3, W0, W3);           // W3 = rS & mask; Z = (lost bits == 0)
         e.CSET_W(W3, A64_NE);           // W3 = 1 if lost bits != 0
         e.AND_W(W3, W3, W4);            // W3 = CA (0 or 1)
