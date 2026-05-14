@@ -14,6 +14,7 @@ extern void      ppc_dispatch_opcode(UINT32 opcode);
 extern void      ppc_check_interrupts_jit(void);
 extern PPC_REGS *ppc_get_state(void);
 extern UINT32    ppc_read_opcode_at(UINT32 pc);
+extern void      jit_sync_fetch(UINT32 pc);     // sync ppc.cur_fetch before compilation
 // Memory bridges: all PPC memory accesses from JIT go through these
 extern UINT32    jit_read8(UINT32 addr);
 extern UINT32    jit_read16(UINT32 addr);
@@ -39,7 +40,7 @@ struct JitBlock {
     uint32_t start_pc;
     uint32_t end_pc;          // first PC NOT in this block
     int      inst_count;
-    void   (*fn)();           // compiled native function
+    void   (*fn)(PPC_REGS *); // compiled native function; X19 = ppc on entry
 };
 
 // ---------------------------------------------------------------------------
@@ -71,13 +72,19 @@ private:
     JitBlock *compile(uint32_t pc);
 
     // Code buffer (executable memory region)
-    static constexpr size_t CODE_BUF_SIZE = 8 * 1024 * 1024;   // 8 MB
+    static constexpr size_t CODE_BUF_SIZE = 16 * 1024 * 1024;  // 16 MB
     uint8_t  *m_code_buf   = nullptr;
     uint8_t  *m_write_buf  = nullptr;   // may differ from m_code_buf on W^X systems
     size_t    m_code_pos   = 0;
 
     // Block cache: guest PC → JitBlock
     std::unordered_map<uint32_t, JitBlock> m_cache;
+
+    // Direct-mapped fast lookup: avoids hash map on repeated block entries.
+    // Indexed by (pc >> 2) & (FAST_CACHE_MASK). Null means no entry for that slot.
+    static constexpr uint32_t FAST_CACHE_SIZE = 4096;
+    static constexpr uint32_t FAST_CACHE_MASK = FAST_CACHE_SIZE - 1;
+    JitBlock *m_fast_cache[FAST_CACHE_SIZE] = {};
 
     bool m_dual_map = false;  // true when write ptr != exec ptr
 };

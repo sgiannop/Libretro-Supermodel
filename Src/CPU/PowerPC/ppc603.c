@@ -320,24 +320,24 @@ int ppc_execute(int cycles)
 			{
 				JitBlock *blk = jit.get_or_compile(ppc.npc);
 				if (!blk)
-					break;	// compile failed; fall through to interpreter
+				{
+					// Compilation failed: sync fetch region and fall through to interpreter
+					ppc_change_pc(ppc.npc);
+					break;
+				}
 
-				blk->fn();	// runs the block; updates ppc.pc, ppc.npc, ppc.icount
-
-				// Keep fetch region in sync for next block compilation
-				ppc_change_pc(ppc.npc);
+				blk->fn(&ppc);	// runs the block; updates ppc.pc, ppc.npc, ppc.icount
 
 				// Decrementer check (per-block granularity is acceptable)
 				if (ppc.icount <= ppc.dec_trigger_cycle)
-				{
 					ppc.interrupt_pending |= 0x2;
+
+				// Fast interrupt check: skip the function call when nothing is pending
+				if (ppc.interrupt_pending != 0)
 					ppc603_check_interrupts();
-				}
-				else
-				{
-					ppc603_check_interrupts();
-				}
 			}
+			// Sync fetch region before returning (or before interpreter fallback)
+			ppc_change_pc(ppc.npc);
 			goto jit_done;
 		}
 	}

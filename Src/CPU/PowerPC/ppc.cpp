@@ -1075,6 +1075,11 @@ PPC_REGS *ppc_get_state(void)
 	return &ppc;
 }
 
+void jit_sync_fetch(UINT32 pc)
+{
+	ppc_change_pc(pc);
+}
+
 UINT32 ppc_read_opcode_at(UINT32 pc)
 {
 	UINT32 offset = pc - ppc.cur_fetch.start;

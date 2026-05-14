@@ -64,6 +64,7 @@ void JitArm64::flush()
 {
     m_cache.clear();
     m_code_pos = 0;
+    memset(m_fast_cache, 0, sizeof(m_fast_cache));
 }
 
 // ---------------------------------------------------------------------------
@@ -71,9 +72,20 @@ void JitArm64::flush()
 // ---------------------------------------------------------------------------
 JitBlock *JitArm64::get_or_compile(uint32_t pc)
 {
+    // Fast path: direct-mapped cache (avoids hash map for hot blocks)
+    uint32_t slot = (pc >> 2) & FAST_CACHE_MASK;
+    JitBlock *blk = m_fast_cache[slot];
+    if (blk && blk->start_pc == pc) return blk;
+
+    // Slow path: hash map lookup or compilation
     auto it = m_cache.find(pc);
-    if (it != m_cache.end()) return &it->second;
-    return compile(pc);
+    if (it != m_cache.end()) {
+        m_fast_cache[slot] = &it->second;
+        return &it->second;
+    }
+    blk = compile(pc);
+    if (blk) m_fast_cache[slot] = blk;
+    return blk;
 }
 
 // ---------------------------------------------------------------------------
@@ -81,7 +93,7 @@ JitBlock *JitArm64::get_or_compile(uint32_t pc)
 // ---------------------------------------------------------------------------
 
 // Limits
-static constexpr int MAX_BLOCK_INSTS = 64;
+static constexpr int MAX_BLOCK_INSTS = 128;
 
 // ARM64 register assignments:
 //   X19  = pointer to PPC_REGS (callee-saved, set in prologue)
@@ -2200,10 +2212,11 @@ static bool translate_op59(Arm64Emitter &e, uint32_t op)
 
 JitBlock *JitArm64::compile(uint32_t start_pc)
 {
+    jit_sync_fetch(start_pc);   // ensure ppc.cur_fetch is valid for ppc_read_opcode_at
     compute_offsets();
 
-    // Check available buffer space (rough estimate: 64 instructions * 32 ARM ops each)
-    if (m_code_pos + 64 * 32 * 4 > CODE_BUF_SIZE) {
+    // Check available buffer space (rough estimate: 128 instructions * 32 ARM ops each)
+    if (m_code_pos + 128 * 32 * 4 > CODE_BUF_SIZE) {
         // Buffer nearly full: evict all blocks and reuse from start
         flush();
     }
@@ -2213,10 +2226,10 @@ JitBlock *JitArm64::compile(uint32_t start_pc)
     Arm64Emitter e(write_base, cap);
 
     // -----------------------------------------------------------------------
-    // Prologue
+    // Prologue — X0 = PPC_REGS* passed by caller (saves 2-4 instructions vs MOV_X64)
     // -----------------------------------------------------------------------
     e.STP_pre(PPC_PTR, 30, A64_SP, -16);   // save X19 (ppc ptr) and X30 (LR)
-    e.MOV_X64(PPC_PTR, (uint64_t)ppc_get_state());
+    e.MOV_X(PPC_PTR, 0);                    // X19 = X0 (PPC_REGS* argument)
 
     // -----------------------------------------------------------------------
     // Block body
@@ -2289,6 +2302,19 @@ JitBlock *JitArm64::compile(uint32_t start_pc)
         case 59: handled = translate_op59(e, op); break;
         case 63: handled = translate_op63(e, op); break;
 
+        case 17: {
+            // sc — system call: interpreter sets ppc.npc to exception handler
+            emit_set_pc_npc(e, pc);
+            e.MOV_W32(W0, op);
+            emit_call(e, (uint64_t)(void *)&ppc_dispatch_opcode);
+            // NPC is now whatever the sc handler set; read it and return
+            e.LDR_W(W3, PPC_PTR, OFF_NPC);
+            emit_epilogue_npc_reg(e, inst_count + 1, pc, W3);
+            terminated = true;
+            handled    = true;
+            break;
+        }
+
         case 16: {
             // bc: fully inlined conditional branch — always terminates the block
             handled    = translate_bc(e, op, pc, inst_count);
@@ -2341,6 +2367,16 @@ JitBlock *JitArm64::compile(uint32_t start_pc)
                 // isync — NOP
                 handled = true;
                 break;
+            case 50: {  // rfi — return from interrupt (sets PC/MSR from SRR0/SRR1)
+                emit_set_pc_npc(e, pc);
+                e.MOV_W32(W0, op);
+                emit_call(e, (uint64_t)(void *)&ppc_dispatch_opcode);
+                e.LDR_W(W3, PPC_PTR, OFF_NPC);
+                emit_epilogue_npc_reg(e, inst_count + 1, pc, W3);
+                terminated = true;
+                handled    = true;
+                break;
+            }
             case 0: {   // mcrf crfD, crfS — copy one CR field to another
                 int crfD = (op >> 23) & 0x7;
                 int crfS = (op >> 18) & 0x7;
@@ -2462,7 +2498,7 @@ JitBlock *JitArm64::compile(uint32_t start_pc)
     blk.start_pc   = start_pc;
     blk.end_pc     = pc;
     blk.inst_count = inst_count;
-    blk.fn         = (void (*)())block_start;
+    blk.fn         = (void (*)(PPC_REGS *))block_start;
 
     m_cache[start_pc] = blk;
     return &m_cache[start_pc];
