@@ -238,6 +238,11 @@ public:
     {
         emit(0x2A400000 | (Wm << 16) | (imm << 10) | (Wn << 5) | Wd);
     }
+    // SUB with shifted register: SUB Wd, Wn, Wm, LSL #imm  (Wd = Wn - (Wm << imm))
+    void SUB_W_LSL(int Wd, int Wn, int Wm, int imm)
+    {
+        emit(0x4B000000 | (Wm << 16) | (imm << 10) | (Wn << 5) | Wd);
+    }
 
     // --- Integer ALU (immediate, 32-bit) ---
     // imm12 must fit in 12 bits (0..4095); sh=1 shifts imm left by 12

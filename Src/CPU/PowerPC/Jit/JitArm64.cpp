@@ -307,16 +307,15 @@ static void emit_add_simm16(Arm64Emitter &e, int Wd, int Wn, int16_t simm)
 // Uses W1, W2, W3 as scratch. Clobbers W0 if reading XER.
 static void emit_cr_from_flags_signed(Arm64Emitter &e, int crfD)
 {
-    // Build: cr[crfD] = (LT<<3) | (GT<<2) | (EQ<<1) | SO
-    e.CSET_W(W1, A64_LT);           // W1 = 1 if LT (signed)
-    e.CSET_W(W2, A64_GT);           // W2 = 1 if GT (signed)
-    e.CSET_W(W3, A64_EQ);           // W3 = 1 if EQ
-    e.LSL_W_IMM(W1, W1, 3);         // W1 = LT<<3
-    e.ORR_W_LSL(W1, W1, W2, 2);     // W1 |= GT<<2
-    e.ORR_W_LSL(W1, W1, W3, 1);     // W1 |= EQ<<1
-    // Add SO bit from XER bit 31 (fold LSR+ORR into one shifted-register ORR)
+    // nibble = 4 + 4*LT - 2*EQ  (valid since exactly one of LT/GT/EQ is true):
+    //   LT=1,EQ=0 → 8 (bit3); LT=0,EQ=1 → 2 (bit1); LT=0,EQ=0 → 4 (bit2=GT)
+    e.CSET_W(W1, A64_LT);               // W1 = LT (N^V)
+    e.CSET_W(W2, A64_EQ);               // W2 = EQ (Z)
+    e.LSL_W_IMM(W1, W1, 2);             // W1 = 4*LT
+    e.ADD_W_IMM(W1, W1, 4);             // W1 = 4 + 4*LT
+    e.SUB_W_LSL(W1, W1, W2, 1);         // W1 = (4+4*LT) - 2*EQ = nibble
     e.LDR_W(W2, PPC_PTR, OFF_XER);
-    e.ORR_W_LSR(W1, W1, W2, 31);    // W1 |= (XER >> 31) = W1 | SO
+    e.ORR_W_LSR(W1, W1, W2, 31);        // W1 |= XER>>31 (SO)
     e.STRB(W1, PPC_PTR, OFF_CR + crfD);
 }
 
@@ -324,15 +323,14 @@ static void emit_cr_from_flags_signed(Arm64Emitter &e, int crfD)
 // Uses cmpl which is really unsigned: CMP as unsigned = use Unsigned Higher / Lower
 static void emit_cr_from_flags_unsigned(Arm64Emitter &e, int crfD)
 {
-    // For unsigned CMP rA, rB: LT = CC (carry clear), GT = HI, EQ = EQ
-    e.CSET_W(W1, A64_CC);           // W1 = 1 if unsigned LT
-    e.CSET_W(W2, A64_HI);           // W2 = 1 if unsigned GT
-    e.CSET_W(W3, A64_EQ);           // W3 = 1 if EQ
-    e.LSL_W_IMM(W1, W1, 3);
-    e.ORR_W_LSL(W1, W1, W2, 2);
-    e.ORR_W_LSL(W1, W1, W3, 1);
+    // Same nibble formula: 4 + 4*LT_unsigned - 2*EQ
+    e.CSET_W(W1, A64_CC);               // W1 = 1 if unsigned LT (carry clear)
+    e.CSET_W(W2, A64_EQ);               // W2 = 1 if EQ
+    e.LSL_W_IMM(W1, W1, 2);
+    e.ADD_W_IMM(W1, W1, 4);
+    e.SUB_W_LSL(W1, W1, W2, 1);
     e.LDR_W(W2, PPC_PTR, OFF_XER);
-    e.ORR_W_LSR(W1, W1, W2, 31);    // W1 |= (XER >> 31) = W1 | SO
+    e.ORR_W_LSR(W1, W1, W2, 31);
     e.STRB(W1, PPC_PTR, OFF_CR + crfD);
 }
 
