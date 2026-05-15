@@ -161,6 +161,7 @@ static int OFF_NPC;
 static int OFF_LR;
 static int OFF_CTR;
 static int OFF_XER;
+static int OFF_XER_CA;
 static int OFF_MSR;
 static int OFF_CR;
 static int OFF_ICOUNT;
@@ -187,6 +188,7 @@ static void compute_offsets()
     OFF_LR     = OFF(lr);
     OFF_CTR    = OFF(ctr);
     OFF_XER    = OFF(xer);
+    OFF_XER_CA = OFF(xer_ca);
     OFF_MSR    = OFF(msr);
     OFF_CR     = OFF(cr[0]);
     OFF_ICOUNT = OFF(icount);
@@ -409,8 +411,7 @@ static void emit_store_cr_bit(Arm64Emitter &e, int Wbit, int Wtmp, int crbit)
 // Load XER.CA (bit 29) into Wdst as 0 or 1. Clobbers only Wdst.
 static void emit_load_xer_ca(Arm64Emitter &e, int Wdst)
 {
-    e.LDR_W(Wdst, PPC_PTR, OFF_XER);
-    e.UBFM_W(Wdst, Wdst, 29, 29);   // extract bit 29 → bit 0
+    e.LDRB(Wdst, PPC_PTR, OFF_XER_CA);
 }
 
 // Set ARM carry flag from Wca (0 or 1).  CMP Wca,#1 = SUBS WZR,Wca,#1:
@@ -421,13 +422,11 @@ static void emit_arm_carry_from_W(Arm64Emitter &e, int Wca)
 }
 
 // After ADDS_W/ADCS_W/SUBS_W/SBCS_W, write ARM carry flag → XER.CA.
-// Clobbers W2, W3. Must be called immediately after the flag-setting op.
+// Clobbers W2. Must be called immediately after the flag-setting op.
 static void emit_update_xer_ca(Arm64Emitter &e)
 {
     e.CSET_W(W2, A64_CS);            // W2 = carry (reads flags before anything else)
-    e.LDR_W(W3, PPC_PTR, OFF_XER);
-    e.BFI_W(W3, W2, 29, 1);          // insert carry into XER.CA (bit 29), clear old
-    e.STR_W(W3, PPC_PTR, OFF_XER);
+    e.STRB(W2, PPC_PTR, OFF_XER_CA);
 }
 
 // Call an external C function.  When the function is in the pointer table at
@@ -1146,7 +1145,7 @@ static bool translate_op31(Arm64Emitter &e, uint32_t op)
         emit_load_gpr(e, W1, rB);
         e.ADDS_W(W0, W0, W1);
         emit_store_gpr(e, W0, rD);
-        emit_update_xer_ca(e);          // clobbers W2,W3,W4; W0 unchanged
+        emit_update_xer_ca(e);          // clobbers W2; W0 unchanged
         if (rc) emit_cr_from_arith_flags(e, 0);
         return true;
 
@@ -1449,9 +1448,7 @@ static bool translate_op31(Arm64Emitter &e, uint32_t op)
         e.CSET_W(W3, A64_NE);           // W3 = 1 if lost bits != 0
         e.AND_W_ASR(W3, W3, W0, 31);   // W3 = CA (W3 & sign_replicated(rS))
 
-        e.LDR_W(W4, PPC_PTR, OFF_XER);
-        e.BFI_W(W4, W3, 29, 1);         // insert CA into XER bit 29, clearing old value
-        e.STR_W(W4, PPC_PTR, OFF_XER);
+        e.STRB(W3, PPC_PTR, OFF_XER_CA);
 
         emit_store_gpr(e, W2, rA);
         if (rc) {
@@ -1468,10 +1465,7 @@ static bool translate_op31(Arm64Emitter &e, uint32_t op)
         if (sh == 0) {
             // No shift: result = rS, XER.CA = 0
             emit_store_gpr(e, W0, rA);
-            // clear XER.CA
-            e.LDR_W(W1, PPC_PTR, OFF_XER);
-            e.BFI_W(W1, A64_WZR, 29, 1);   // clear XER bit 29 (CA)
-            e.STR_W(W1, PPC_PTR, OFF_XER);
+            e.STRB(A64_WZR, PPC_PTR, OFF_XER_CA);  // clear XER.CA
         } else {
             // XER.CA = (rS < 0) && ((rS & ((1<<sh)-1)) != 0)
             e.ANDS_W_BITMASK(W1, W0, 0, sh - 1); // W1 = lost bits; Z=1 if none lost
@@ -1479,9 +1473,7 @@ static bool translate_op31(Arm64Emitter &e, uint32_t op)
             e.ASR_W_IMM(W0, W0, sh);              // W0 = result
             e.AND_W_ASR(W3, W3, W0, 31);         // W3 = CA (W3 & sign_replicated(result))
             emit_store_gpr(e, W0, rA);
-            e.LDR_W(W1, PPC_PTR, OFF_XER);
-            e.BFI_W(W1, W3, 29, 1);
-            e.STR_W(W1, PPC_PTR, OFF_XER);
+            e.STRB(W3, PPC_PTR, OFF_XER_CA);
         }
         if (rc) emit_set_cr0_from_W0(e);
         return true;
@@ -1595,7 +1587,12 @@ static bool translate_op31(Arm64Emitter &e, uint32_t op)
     case 339: {
         int spr = ((op >> 6) & 0x3E0) | ((op >> 16) & 0x1F);
         switch (spr) {
-        case 1:   e.LDR_W(W0, PPC_PTR, OFF_XER);           emit_store_gpr(e, W0, rD); return true;
+        case 1: {
+            e.LDR_W(W0, PPC_PTR, OFF_XER);
+            e.LDRB(W1, PPC_PTR, OFF_XER_CA);
+            e.BFI_W(W0, W1, 29, 1);              // reconstruct CA from xer_ca cache
+            emit_store_gpr(e, W0, rD); return true;
+        }
         case 8:   e.LDR_W(W0, PPC_PTR, OFF_LR);            emit_store_gpr(e, W0, rD); return true;
         case 9:   e.LDR_W(W0, PPC_PTR, OFF_CTR);           emit_store_gpr(e, W0, rD); return true;
         case 22:  e.LDR_W(W0, PPC_PTR, OFF_DEC);           emit_store_gpr(e, W0, rD); return true;
@@ -1630,7 +1627,13 @@ static bool translate_op31(Arm64Emitter &e, uint32_t op)
     case 467: {
         int spr = ((op >> 6) & 0x3E0) | ((op >> 16) & 0x1F);
         switch (spr) {
-        case 1:   emit_load_gpr(e, W0, rD); e.STR_W(W0, PPC_PTR, OFF_XER);       return true;
+        case 1: {
+            emit_load_gpr(e, W0, rD);
+            e.STR_W(W0, PPC_PTR, OFF_XER);
+            e.UBFM_W(W1, W0, 29, 29);            // extract new CA bit
+            e.STRB(W1, PPC_PTR, OFF_XER_CA);     // sync xer_ca cache
+            return true;
+        }
         case 8:   emit_load_gpr(e, W0, rD); e.STR_W(W0, PPC_PTR, OFF_LR);        return true;
         case 9:   emit_load_gpr(e, W0, rD); e.STR_W(W0, PPC_PTR, OFF_CTR);       return true;
         case 22:  emit_load_gpr(e, W0, rD); e.STR_W(W0, PPC_PTR, OFF_DEC);       return true;
@@ -1654,10 +1657,13 @@ static bool translate_op31(Arm64Emitter &e, uint32_t op)
     case 512: {
         int crfD = (op >> 23) & 0x7;
         e.LDR_W(W0, PPC_PTR, OFF_XER);
+        e.LDRB(W1, PPC_PTR, OFF_XER_CA);
+        e.BFI_W(W0, W1, 29, 1);                    // reconstruct CA from xer_ca cache
         e.LSR_W_IMM(W1, W0, 28);                   // W1 = SO:OV:CA:0 (bits 3:0)
         e.STRB(W1, PPC_PTR, OFF_CR + crfD);
         e.AND_W_BITMASK(W0, W0, 0, 27);            // clear top nibble (mask=0x0FFFFFFF)
         e.STR_W(W0, PPC_PTR, OFF_XER);
+        e.STRB(A64_WZR, PPC_PTR, OFF_XER_CA);      // clear xer_ca cache
         return true;
     }
 

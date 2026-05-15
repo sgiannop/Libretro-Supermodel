@@ -130,6 +130,9 @@ static UINT32		ppc_field_xlat[256];
 #define XER_SO			0x80000000
 #define XER_OV			0x40000000
 #define XER_CA			0x20000000
+// Sync macros: update both the full XER word and the fast xer_ca byte
+#define SET_XER_CA_SET() do { XER |= XER_CA; ppc.xer_ca = 1; } while(0)
+#define SET_XER_CA_CLR() do { XER &= ~XER_CA; ppc.xer_ca = 0; } while(0)
 
 #define MSR_POW			0x00040000	/* Power Management Enable */
 #define MSR_WE			0x00040000
@@ -285,17 +288,17 @@ static inline void SET_SUB_OV(UINT32 rd, UINT32 ra, UINT32 rb)
 static inline void SET_ADD_CA(UINT32 rd, UINT32 ra, UINT32 rb)
 {
 	if( ADD_CA(rd, ra, rb) )
-		XER |= XER_CA;
+		SET_XER_CA_SET();
 	else
-		XER &= ~XER_CA;
+		SET_XER_CA_CLR();
 }
 
 static inline void SET_SUB_CA(UINT32 rd, UINT32 ra, UINT32 rb)
 {
 	if( SUB_CA(rd, ra, rb) )
-		XER |= XER_CA;
+		SET_XER_CA_SET();
 	else
-		XER &= ~XER_CA;
+		SET_XER_CA_CLR();
 }
 
 static inline UINT32 check_condition_code(UINT32 bo, UINT32 bi)
@@ -377,7 +380,7 @@ static inline void ppc_set_spr(int spr, UINT32 value)
 	{
 		case SPR_LR:		LR = value; return;
 		case SPR_CTR:		CTR = value; return;
-		case SPR_XER:		XER = value; return;
+		case SPR_XER:		XER = value; ppc.xer_ca = (value >> 29) & 1; return;
 		case SPR_SRR0:		ppc.srr0 = value; return;
 		case SPR_SRR1:		ppc.srr1 = value; return;
 		case SPR_SPRG0:		ppc.sprg[0] = value; return;
@@ -906,6 +909,7 @@ void ppc_load_state(CBlockFile *SaveState)
 	SaveState->Read(&ppc.lr, sizeof(ppc.lr));
 	SaveState->Read(&ppc.ctr, sizeof(ppc.ctr));
 	SaveState->Read(&ppc.xer, sizeof(ppc.xer));
+	ppc.xer_ca = (ppc.xer >> 29) & 1;
 	SaveState->Read(&ppc.msr, sizeof(ppc.msr));
 	SaveState->Read(ppc.cr, sizeof(ppc.cr));
 	SaveState->Read(&ppc.pvr, sizeof(ppc.pvr));

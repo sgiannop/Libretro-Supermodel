@@ -120,6 +120,9 @@ typedef struct {
     int     bus_freq_multiplier;
     int     cycles_per_second;
 
+    // Fast CA cache: mirrors XER bit 29 as 0 or 1 for cheaper JIT access
+    UINT8   xer_ca;
+
 #if HAS_PPC603
     int is603;
 #endif
