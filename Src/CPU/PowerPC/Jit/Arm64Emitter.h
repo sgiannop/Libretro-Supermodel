@@ -248,6 +248,11 @@ public:
     {
         emit(0x4B000000 | (Wm << 16) | (imm << 10) | (Wn << 5) | Wd);
     }
+    // AND with ASR-shifted register: AND Wd, Wn, Wm, ASR #imm  (Wd = Wn & (Wm >> imm) signed)
+    void AND_W_ASR(int Wd, int Wn, int Wm, int imm)
+    {
+        emit(0x0A800000 | (Wm << 16) | (imm << 10) | (Wn << 5) | Wd);
+    }
 
     // --- Integer ALU (immediate, 32-bit) ---
     // imm12 must fit in 12 bits (0..4095); sh=1 shifts imm left by 12

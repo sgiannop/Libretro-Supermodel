@@ -1385,10 +1385,9 @@ static bool translate_op31(Arm64Emitter &e, uint32_t op)
         e.MVN_W(W4, A64_WZR);           // W4 = 0xFFFFFFFF [large-shift mask]
         e.CSEL_W(W3, W4, W3, A64_CS);  // W3 = (sh >= 32) ? 0xFFFFFFFF : mask  [no CMP needed]
 
-        e.LSR_W_IMM(W4, W0, 31);        // W4 = (rS < 0) ? 1 : 0
         e.ANDS_W(W3, W0, W3);           // W3 = rS & mask; Z = (lost bits == 0)
         e.CSET_W(W3, A64_NE);           // W3 = 1 if lost bits != 0
-        e.AND_W(W3, W3, W4);            // W3 = CA (0 or 1)
+        e.AND_W_ASR(W3, W3, W0, 31);   // W3 = CA (W3 & sign_replicated(rS))
 
         e.LDR_W(W4, PPC_PTR, OFF_XER);
         e.BFI_W(W4, W3, 29, 1);         // insert CA into XER bit 29, clearing old value
@@ -1416,10 +1415,9 @@ static bool translate_op31(Arm64Emitter &e, uint32_t op)
         } else {
             // XER.CA = (rS < 0) && ((rS & ((1<<sh)-1)) != 0)
             e.ANDS_W_BITMASK(W1, W0, 0, sh - 1); // W1 = lost bits; Z=1 if none lost
-            e.ASR_W_IMM(W0, W0, sh);              // W0 = result (no flags change)
-            e.ASR_W_IMM(W2, W0, 31);              // W2 = sign mask (0 or 0xFFFFFFFF)
-            e.CSET_W(W3, A64_NE);                 // W3 = 1 if lost != 0 (Z from ANDS still valid)
-            e.AND_W(W3, W3, W2);                  // W3 = CA
+            e.CSET_W(W3, A64_NE);                 // W3 = 1 if lost != 0
+            e.ASR_W_IMM(W0, W0, sh);              // W0 = result
+            e.AND_W_ASR(W3, W3, W0, 31);         // W3 = CA (W3 & sign_replicated(result))
             emit_store_gpr(e, W0, rA);
             e.LDR_W(W1, PPC_PTR, OFF_XER);
             e.BFI_W(W1, W3, 29, 1);
@@ -2311,8 +2309,7 @@ static bool translate_op63(Arm64Emitter &e, uint32_t op)
         int crfD = (op >> 23) & 0x7;
         int crfS = (op >> 18) & 0x7;
         e.LDR_W(W0, PPC_PTR, OFF_FPSCR);
-        e.LSR_W_IMM(W1, W0, 28 - crfS * 4);
-        e.AND_W_BITMASK(W1, W1, 0, 3);            // mask low nibble (0xF)
+        e.UBFM_W(W1, W0, 28 - crfS * 4, 31 - crfS * 4);  // extract 4-bit field to [3:0]
         e.STRB(W1, PPC_PTR, OFF_CR + crfD);
         return true;
     }
@@ -2325,14 +2322,13 @@ static bool translate_op63(Arm64Emitter &e, uint32_t op)
         emit_load_fpr(e, D1, rB);
         e.FCMP_D(D0, D1);            // sets NZCV: N=LT, Z=EQ, C=!LT (ordered), V=unordered
         // Build PPC CR field: bit3=LT, bit2=GT, bit1=EQ, bit0=FU (unordered)
-        e.CSET_W(W0, A64_MI);        // W0 = 1 if LT (N flag)
-        e.CSET_W(W1, A64_GT);        // W1 = 1 if GT
-        e.CSET_W(W2, A64_EQ);        // W2 = 1 if EQ (Z flag)
-        e.CSET_W(W3, A64_VS);        // W3 = 1 if unordered (V flag)
-        e.LSL_W_IMM(W0, W0, 3);
-        e.ORR_W_LSL(W0, W0, W1, 2);
-        e.ORR_W_LSL(W0, W0, W2, 1);
-        e.ORR_W(W0, W0, W3);
+        e.CSET_W(W0, A64_MI);        // W0 = LT
+        e.CSET_W(W1, A64_GT);        // W1 = GT
+        e.CSET_W(W2, A64_EQ);        // W2 = EQ
+        e.CSET_W(W3, A64_VS);        // W3 = FU (unordered)
+        e.ORR_W_LSL(W1, W3, W1, 2);  // W1 = FU | (GT<<2)
+        e.ORR_W_LSL(W0, W1, W0, 3);  // W0 = (FU|GT<<2) | (LT<<3)
+        e.ORR_W_LSL(W0, W0, W2, 1);  // W0 |= EQ<<1
         e.STRB(W0, PPC_PTR, OFF_CR + crfD);
         return true;
     }
