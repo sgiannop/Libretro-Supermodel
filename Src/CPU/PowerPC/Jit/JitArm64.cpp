@@ -346,6 +346,17 @@ static void emit_set_cr0_from_W0(Arm64Emitter &e)
     emit_cr_from_flags_signed(e, 0);
 }
 
+// Update CR0 when the result is a JIT compile-time constant (4 instructions
+// vs 9 for CMP + emit_cr_from_flags_signed). Hardcodes LT/EQ/GT nibble.
+static void emit_cr0_const_result(Arm64Emitter &e, int32_t val)
+{
+    int nibble = (val == 0) ? 2 : (val < 0) ? 8 : 4;
+    e.MOV_W32(W1, nibble);
+    e.LDR_W(W2, PPC_PTR, OFF_XER);
+    e.ORR_W_LSR(W1, W1, W2, 31);    // W1 = nibble | SO
+    e.STRB(W1, PPC_PTR, OFF_CR);
+}
+
 // Extract CR bit crbit into bit 0 of Wdst (0 or 1). Clobbers only Wdst.
 // crbit is 0-31 where bit 0 = CR0[LT], bit 31 = CR7[SO].
 static void emit_load_cr_bit(Arm64Emitter &e, int Wdst, int crbit)
@@ -1234,7 +1245,7 @@ static bool translate_op31(Arm64Emitter &e, uint32_t op)
         if (rD == rB) {  // xor with self = 0
             e.MOV_W32(W0, 0);
             emit_store_gpr(e, W0, rA);
-            if (rc) emit_set_cr0_from_W0(e);
+            if (rc) emit_cr0_const_result(e, 0);
             return true;
         }
         emit_load_gpr(e, W0, rD);
@@ -1287,7 +1298,7 @@ static bool translate_op31(Arm64Emitter &e, uint32_t op)
         if (rD == rB) {  // rS & ~rS = 0
             e.MOV_W32(W0, 0);
             emit_store_gpr(e, W0, rA);
-            if (rc) emit_set_cr0_from_W0(e);
+            if (rc) emit_cr0_const_result(e, 0);
             return true;
         }
         emit_load_gpr(e, W0, rD);
@@ -1307,7 +1318,7 @@ static bool translate_op31(Arm64Emitter &e, uint32_t op)
         if (rD == rB) {  // rS | ~rS = 0xFFFFFFFF
             e.MOV_W32(W0, 0xFFFFFFFFu);
             emit_store_gpr(e, W0, rA);
-            if (rc) emit_set_cr0_from_W0(e);
+            if (rc) emit_cr0_const_result(e, -1);
             return true;
         }
         emit_load_gpr(e, W0, rD);
@@ -1339,7 +1350,7 @@ static bool translate_op31(Arm64Emitter &e, uint32_t op)
         if (rD == rB) {  // ~(rS ^ rS) = ~0 = 0xFFFFFFFF
             e.MOV_W32(W0, 0xFFFFFFFFu);
             emit_store_gpr(e, W0, rA);
-            if (rc) emit_set_cr0_from_W0(e);
+            if (rc) emit_cr0_const_result(e, -1);
             return true;
         }
         emit_load_gpr(e, W0, rD);
