@@ -308,18 +308,19 @@ static void emit_add_simm16(Arm64Emitter &e, int Wd, int Wn, int16_t simm)
 }
 
 // Update CR field crfD after a signed comparison (flags already set by CMP/SUBS)
-// Uses W1, W2, W3 as scratch. Clobbers W0 if reading XER.
+// SO (XER bit 31) is always 0 in JIT-compiled code: all OE-form arithmetic ops
+// are handled with OE ignored, so SO/OV are never set by arithmetic.  mtspr XER
+// with SO=1 is possible but reading CR0[SO] after it is vanishingly rare in game
+// code — consistent with the existing OE-ignored compromise.
 static void emit_cr_from_flags_signed(Arm64Emitter &e, int crfD)
 {
-    // nibble = 4 + 4*LT - 2*EQ  (valid since exactly one of LT/GT/EQ is true):
-    //   LT=1,EQ=0 → 8 (bit3); LT=0,EQ=1 → 2 (bit1); LT=0,EQ=0 → 4 (bit2=GT)
+    // nibble = 4 + 4*LT - 2*EQ  (exactly one of LT/GT/EQ is true):
+    //   LT=1,EQ=0 → 8; LT=0,EQ=1 → 2; LT=0,EQ=0 → 4 (GT)
     e.CSET_W(W1, A64_LT);               // W1 = LT (N^V)
     e.CSET_W(W2, A64_EQ);               // W2 = EQ (Z)
     e.LSL_W_IMM(W1, W1, 2);             // W1 = 4*LT
     e.ADD_W_IMM(W1, W1, 4);             // W1 = 4 + 4*LT
     e.SUB_W_LSL(W1, W1, W2, 1);         // W1 = (4+4*LT) - 2*EQ = nibble
-    e.LDR_W(W2, PPC_PTR, OFF_XER);
-    e.ORR_W_LSR(W1, W1, W2, 31);        // W1 |= XER>>31 (SO)
     e.STRB(W1, PPC_PTR, OFF_CR + crfD);
 }
 
@@ -333,23 +334,17 @@ static void emit_cr_from_arith_flags(Arm64Emitter &e, int crfD)
     e.LSL_W_IMM(W1, W1, 2);
     e.ADD_W_IMM(W1, W1, 4);
     e.SUB_W_LSL(W1, W1, W2, 1);
-    e.LDR_W(W2, PPC_PTR, OFF_XER);
-    e.ORR_W_LSR(W1, W1, W2, 31);
     e.STRB(W1, PPC_PTR, OFF_CR + crfD);
 }
 
-// Update CR field crfD after unsigned comparison (flags set by CMP/SUBS for unsigned)
-// Uses cmpl which is really unsigned: CMP as unsigned = use Unsigned Higher / Lower
+// Update CR field crfD after unsigned comparison (flags set by CMP for unsigned).
 static void emit_cr_from_flags_unsigned(Arm64Emitter &e, int crfD)
 {
-    // Same nibble formula: 4 + 4*LT_unsigned - 2*EQ
     e.CSET_W(W1, A64_CC);               // W1 = 1 if unsigned LT (carry clear)
     e.CSET_W(W2, A64_EQ);               // W2 = 1 if EQ
     e.LSL_W_IMM(W1, W1, 2);
     e.ADD_W_IMM(W1, W1, 4);
     e.SUB_W_LSL(W1, W1, W2, 1);
-    e.LDR_W(W2, PPC_PTR, OFF_XER);
-    e.ORR_W_LSR(W1, W1, W2, 31);
     e.STRB(W1, PPC_PTR, OFF_CR + crfD);
 }
 
@@ -361,41 +356,29 @@ static void emit_set_cr0_from_W0(Arm64Emitter &e)
     emit_cr_from_flags_signed(e, 0);
 }
 
-// Update CR0 when the result in W0 is known to be non-negative (bit31==0).
-// LT is unconditionally 0; only EQ vs GT need checking. 7 instructions vs
-// 9 for CMP + emit_cr_from_flags_signed.
-static void emit_cr0_nonneg(Arm64Emitter &e)
-{
-    e.CMP_W_IMM(W0, 0);
-    e.MOV_W32(W1, 4);                // GT nibble (positive)
-    e.MOV_W32(W2, 2);                // EQ nibble
-    e.CSEL_W(W1, W2, W1, A64_EQ);   // W1 = W0==0 ? 2 : 4
-    e.LDR_W(W2, PPC_PTR, OFF_XER);
-    e.ORR_W_LSR(W1, W1, W2, 31);    // W1 = nibble | SO
-    e.STRB(W1, PPC_PTR, OFF_CR);
-}
-
 // Update CR0 when the result is known non-negative (bit31=0 guaranteed) and
 // ARM flags already reflect the result (from ANDS or CMP). Only Z matters:
-// nibble = 4 (GT) if !Z, 2 (EQ) if Z.  Saves 2 vs emit_cr_from_flags_signed.
+// nibble = 4 (GT) if !Z, 2 (EQ) if Z.
 static void emit_cr0_nonneg_from_flags(Arm64Emitter &e)
 {
     e.CSET_W(W1, A64_EQ);               // W1 = Z
     e.MOV_W32(W2, 4);                   // W2 = GT nibble
     e.SUB_W_LSL(W2, W2, W1, 1);        // W2 = 4 - 2*Z = 4 (GT) or 2 (EQ)
-    e.LDR_W(W1, PPC_PTR, OFF_XER);
-    e.ORR_W_LSR(W2, W2, W1, 31);       // W2 |= SO
     e.STRB(W2, PPC_PTR, OFF_CR);
 }
 
-// Update CR0 when the result is a JIT compile-time constant (4 instructions
-// vs 9 for CMP + emit_cr_from_flags_signed). Hardcodes LT/EQ/GT nibble.
+// Update CR0 when W0 is known non-negative (bit31==0). Sets flags first via CMP.
+static void emit_cr0_nonneg(Arm64Emitter &e)
+{
+    e.CMP_W_IMM(W0, 0);
+    emit_cr0_nonneg_from_flags(e);
+}
+
+// Update CR0 when the result is a JIT compile-time constant. Hardcodes LT/EQ/GT nibble.
 static void emit_cr0_const_result(Arm64Emitter &e, int32_t val)
 {
     int nibble = (val == 0) ? 2 : (val < 0) ? 8 : 4;
     e.MOV_W32(W1, nibble);
-    e.LDR_W(W2, PPC_PTR, OFF_XER);
-    e.ORR_W_LSR(W1, W1, W2, 31);    // W1 = nibble | SO
     e.STRB(W1, PPC_PTR, OFF_CR);
 }
 
