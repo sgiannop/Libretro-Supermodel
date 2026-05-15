@@ -2835,17 +2835,32 @@ JitBlock *JitArm64::compile(uint32_t start_pc)
         }  // if (!handled) switch
 
         // Post-switch peephole: rc=1 op writing CR0, immediately followed by a bc
-        // on CR0.  After emit_cr_from_flags_signed / emit_set_cr0_from_W0, ARM NZCV
-        // are live (V=0, N=sign(result), Z=zero) — branch directly from them.
+        // Peephole: fuse an instruction that leaves NZCV valid with a following bc.
+        // NZCV survive all CR-store helpers (CSET/ADD/SUB/LDR/ORR_LSR/STRB set no flags).
+        // Three categories:
+        //   Rc=1 ops  → always write CR0; use signed conditions {LT, GT, EQ}.
+        //   cmp/cmpi  → write CR[crfD]; use signed conditions {LT, GT, EQ}.
+        //   cmpl/cmpli→ write CR[crfD]; use unsigned conditions {CC, HI, EQ}.
         if (handled && !terminated) {
             bool has_rc1 = false;
+            bool has_cmp = false;
+            int  cmp_crfD = 0;
+            bool cmp_unsigned = false;
             if (primary == 28 || primary == 29) {
                 has_rc1 = true;   // andi./andis.: inherently Rc=1
             } else if ((op & 1) &&
                        (primary == 20 || primary == 21 || primary == 23 || primary == 31)) {
                 has_rc1 = true;   // rlwimi./rlwinm./rlwnm./op31 with Rc bit
+            } else if (primary == 11) {
+                has_cmp = true; cmp_crfD = (op >> 23) & 0x7;  // cmpi (signed)
+            } else if (primary == 10) {
+                has_cmp = true; cmp_crfD = (op >> 23) & 0x7; cmp_unsigned = true;  // cmpli
+            } else if (primary == 31) {
+                int sub31 = (op >> 1) & 0x3FF;
+                if (sub31 == 0)  { has_cmp = true; cmp_crfD = (op >> 23) & 0x7; }         // cmp
+                if (sub31 == 32) { has_cmp = true; cmp_crfD = (op >> 23) & 0x7; cmp_unsigned = true; } // cmpl
             }
-            if (has_rc1) {
+            if (has_rc1 || has_cmp) {
                 uint32_t next_op = ppc_read_opcode_at(pc + 4);
                 int  nbo         = (next_op >> 21) & 0x1F;
                 int  nbi         = (next_op >> 16) & 0x1F;
@@ -2854,11 +2869,14 @@ JitBlock *JitArm64::compile(uint32_t start_pc)
                 bool nctr_rel    = !(nbo & 0x04);
                 bool ncond_rel   = !(nbo & 0x10);
                 bool ncond_clr   = !(nbo & 0x08);
+                int  req_crfD    = has_rc1 ? 0 : cmp_crfD;
                 if ((next_op >> 26) == 16 && !nctr_rel && ncond_rel
                     && !(next_op & 1) && !((next_op >> 1) & 1)
-                    && n_crfD == 0 && n_crbit <= 2)
+                    && n_crfD == req_crfD && n_crbit <= 2)
                 {
-                    static const int s_cond[3] = { A64_LT, A64_GT, A64_EQ };
+                    static const int s_cond_signed[3]   = { A64_LT, A64_GT, A64_EQ };
+                    static const int s_cond_unsigned[3] = { A64_CC, A64_HI, A64_EQ };
+                    const int *s_cond = (has_cmp && cmp_unsigned) ? s_cond_unsigned : s_cond_signed;
                     int a64_cond = s_cond[n_crbit];
                     if (ncond_clr) a64_cond ^= 1;
 
