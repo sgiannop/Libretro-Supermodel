@@ -1115,9 +1115,14 @@ static bool translate_op31(Arm64Emitter &e, uint32_t op)
     case 266:
         emit_load_gpr(e, W0, rA);
         emit_load_gpr(e, W1, rB);
-        e.ADD_W(W0, W0, W1);
-        emit_store_gpr(e, W0, rD);
-        if (rc) emit_set_cr0_from_W0(e);
+        if (rc) {
+            e.ADDS_W(W0, W0, W1);
+            emit_store_gpr(e, W0, rD);
+            emit_cr_from_arith_flags(e, 0);
+        } else {
+            e.ADD_W(W0, W0, W1);
+            emit_store_gpr(e, W0, rD);
+        }
         return true;
 
     // addc rD, rA, rB  (rD = rA + rB, XER.CA = carry out; addco = 522)
@@ -1174,9 +1179,14 @@ static bool translate_op31(Arm64Emitter &e, uint32_t op)
     case 40:
         emit_load_gpr(e, W0, rB);
         emit_load_gpr(e, W1, rA);
-        e.SUB_W(W0, W0, W1);
-        emit_store_gpr(e, W0, rD);
-        if (rc) emit_set_cr0_from_W0(e);
+        if (rc) {
+            e.SUBS_W(W0, W0, W1);
+            emit_store_gpr(e, W0, rD);
+            emit_cr_from_arith_flags(e, 0);
+        } else {
+            e.SUB_W(W0, W0, W1);
+            emit_store_gpr(e, W0, rD);
+        }
         return true;
 
     // subfc rD, rA, rB  (rD = rB - rA, XER.CA = ~borrow = (rB>=rA); subfco = 520)
@@ -1234,9 +1244,14 @@ static bool translate_op31(Arm64Emitter &e, uint32_t op)
     case 616:
     case 104:
         emit_load_gpr(e, W0, rA);
-        e.NEG_W(W0, W0);
-        emit_store_gpr(e, W0, rD);
-        if (rc) emit_set_cr0_from_W0(e);
+        if (rc) {
+            e.NEGS_W(W0, W0);
+            emit_store_gpr(e, W0, rD);
+            emit_cr_from_arith_flags(e, 0);
+        } else {
+            e.NEG_W(W0, W0);
+            emit_store_gpr(e, W0, rD);
+        }
         return true;
 
     // or/mr rA, rS, rB  (note: PPC uses rD/rA/rB encoding, but or uses rS in rD field)
