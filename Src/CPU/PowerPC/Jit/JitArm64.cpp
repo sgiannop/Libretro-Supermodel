@@ -377,6 +377,19 @@ static void emit_cr0_nonneg(Arm64Emitter &e)
     e.STRB(W1, PPC_PTR, OFF_CR);
 }
 
+// Update CR0 when the result is known non-negative (bit31=0 guaranteed) and
+// ARM flags already reflect the result (from ANDS or CMP). Only Z matters:
+// nibble = 4 (GT) if !Z, 2 (EQ) if Z.  Saves 2 vs emit_cr_from_flags_signed.
+static void emit_cr0_nonneg_from_flags(Arm64Emitter &e)
+{
+    e.CSET_W(W1, A64_EQ);               // W1 = Z
+    e.MOV_W32(W2, 4);                   // W2 = GT nibble
+    e.SUB_W_LSL(W2, W2, W1, 1);        // W2 = 4 - 2*Z = 4 (GT) or 2 (EQ)
+    e.LDR_W(W1, PPC_PTR, OFF_XER);
+    e.ORR_W_LSR(W2, W2, W1, 31);       // W2 |= SO
+    e.STRB(W2, PPC_PTR, OFF_CR);
+}
+
 // Update CR0 when the result is a JIT compile-time constant (4 instructions
 // vs 9 for CMP + emit_cr_from_flags_signed). Hardcodes LT/EQ/GT nibble.
 static void emit_cr0_const_result(Arm64Emitter &e, int32_t val)
@@ -811,7 +824,7 @@ static bool translate_andi_dot(Arm64Emitter &e, uint32_t op)
         e.ANDS_W(W0, W0, W1);
     }
     emit_store_gpr(e, W0, rA);
-    emit_cr_from_flags_signed(e, 0);
+    emit_cr0_nonneg_from_flags(e);  // UIMM is 16-bit zero-extended: result[31..16]=0 always
     return true;
 }
 
@@ -831,7 +844,11 @@ static bool translate_andis_dot(Arm64Emitter &e, uint32_t op)
         e.ANDS_W(W0, W0, W1);
     }
     emit_store_gpr(e, W0, rA);
-    emit_cr_from_flags_signed(e, 0);
+    // If UIMM bit 15 = 0, mask has no bit-31 → result non-negative
+    if ((uimm & 0x80000000) == 0)
+        emit_cr0_nonneg_from_flags(e);
+    else
+        emit_cr_from_flags_signed(e, 0);
     return true;
 }
 
@@ -963,7 +980,7 @@ static bool translate_rlwinm(Arm64Emitter &e, uint32_t op)
         if (rc) {
             e.ANDS_W_BITMASK(W0, W0, 0, 31 - mb);  // mask = lower (32-mb) bits; sets N/Z
             emit_store_gpr(e, W0, rA);
-            emit_cr_from_flags_signed(e, 0);
+            emit_cr0_nonneg_from_flags(e);           // mb>0: bit31 not in mask, N=0 always
         } else {
             e.UBFM_W(W0, W0, 0, 31 - mb);
             emit_store_gpr(e, W0, rA);
@@ -986,9 +1003,13 @@ static bool translate_rlwinm(Arm64Emitter &e, uint32_t op)
 
     if (need_and) {
         if (rc) {
-            e.ANDS_W_BITMASK(W0, W0, immr_bm, imms_bm);  // sets N/Z, V=C=0 → emit_cr_from_flags_signed safe
+            e.ANDS_W_BITMASK(W0, W0, immr_bm, imms_bm);  // sets N/Z, V=C=0
             emit_store_gpr(e, W0, rA);
-            emit_cr_from_flags_signed(e, 0);
+            // Non-wrapping mask with mb>0: bit31 not in mask, N=0 always
+            if (mb <= me && mb > 0)
+                emit_cr0_nonneg_from_flags(e);
+            else
+                emit_cr_from_flags_signed(e, 0);
             return true;
         }
         e.AND_W_BITMASK(W0, W0, immr_bm, imms_bm);
@@ -1074,7 +1095,11 @@ static bool translate_rlwnm(Arm64Emitter &e, uint32_t op)
         if (rc) {
             e.ANDS_W_BITMASK(W0, W0, immr_bm, imms_bm);
             emit_store_gpr(e, W0, rA);
-            emit_cr_from_flags_signed(e, 0);
+            // Non-wrapping mask with mb>0: bit31 not in mask, N=0 always
+            if (mb <= me && mb > 0)
+                emit_cr0_nonneg_from_flags(e);
+            else
+                emit_cr_from_flags_signed(e, 0);
             return true;
         }
         e.AND_W_BITMASK(W0, W0, immr_bm, imms_bm);
