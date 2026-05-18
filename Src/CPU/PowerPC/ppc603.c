@@ -308,10 +308,11 @@ int ppc_execute(int cycles)
 #ifdef SUPERMODEL_DEBUGGER
 		bool jit_ok = (PPCDebug == NULL);	// bypass JIT when debugger is attached
 #else
-		bool jit_ok = true;
+		bool jit_ok = s_ppc_jit_enabled;
 #endif
+		if (jit_ok)
+		{
 		JitArm64 &jit = JitArm64::get();
-		if (!jit_ok) goto jit_done;
 		if (!jit.is_available())
 			jit.init();
 
@@ -327,20 +328,52 @@ int ppc_execute(int cycles)
 					break;
 				}
 
-				blk->fn(&ppc);	// runs the block; updates ppc.pc, ppc.npc, ppc.icount
+				s_jit_executing = true;
+				blk->fn(&ppc);	// runs block (or chain); updates ppc.pc, ppc.npc, ppc.icount
+				s_jit_executing = false;
 
-				// Decrementer check (per-block granularity is acceptable)
-				if (ppc.icount <= ppc.dec_trigger_cycle)
+				// Per-block decrementer and interrupt check.
+				// External IRQs (e.g. SCSI SCRIPTS completion via CIRQ::Assert) must be
+				// processed within one block of being asserted, otherwise the CPU can race
+				// ahead and clear the status register that gates the IRQ handler's decision
+				// (e.g. SCSI ISTAT bit 0 cleared by a subsequent DSTAT read), causing the
+				// game to lock up permanently with the wrong CR state.
+				// dec_trigger_cycle == 0x7fffffff is the sentinel meaning "no DEC
+				// overflow this execution slot."  The <= form is needed (instead of
+				// == like the interpreter) because icount advances in block-sized
+				// steps and may skip over the exact trigger value.  Guard against
+				// the sentinel so DEC doesn't fire on every single dispatch.
+				if (ppc.dec_trigger_cycle != 0x7fffffff && ppc.icount <= ppc.dec_trigger_cycle)
 					ppc.interrupt_pending |= 0x2;
-
-				// Fast interrupt check: skip the function call when nothing is pending
 				if (ppc.interrupt_pending != 0)
 					ppc603_check_interrupts();
 			}
+
 			// Sync fetch region before returning (or before interpreter fallback)
 			ppc_change_pc(ppc.npc);
+
+			// Periodic telemetry: dump JIT stats every ~300 frames (~5 seconds)
+			{
+				static int s_stat_timer = 0;
+				if (++s_stat_timer >= 60000)
+				{
+					s_stat_timer = 0;
+					const JitArm64::Stats &s = jit.get_stats();
+					DebugLog("JIT: compiled=%llu execs=%llu fast=%llu fail=%llu fixreg=%llu fixapp=%llu cache=%zu code=%zuKB\n",
+						(unsigned long long)s.blocks_compiled,
+						(unsigned long long)s.block_executions,
+						(unsigned long long)s.fast_hits,
+						(unsigned long long)s.compile_failures,
+						(unsigned long long)s.fixups_registered,
+						(unsigned long long)s.fixups_applied,
+						jit.cache_size(),
+						jit.code_kb());
+					}
+			}
+
 			goto jit_done;
 		}
+		} // if (jit_ok)
 	}
 #endif // __aarch64__
 // Suppress unused-label warning when debugger is disabled

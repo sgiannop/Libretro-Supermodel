@@ -562,6 +562,13 @@ static void (* optable[64])(UINT32);
 #include "Jit/JitArm64.h"
 #endif
 
+// True while a JIT-compiled block is executing (set/cleared around blk->fn()
+// in ppc603.c). Used by ppc_set_irq_line to avoid calling ppc603_check_interrupts()
+// mid-block, which would corrupt MSR[EE] and npc before the block returns.
+static bool s_jit_executing = false;
+static bool s_ppc_jit_enabled = true;
+
+#include "PPCDisasm.h"
 #include "ppc603.c"
 
 /********************************************************************/
@@ -753,6 +760,7 @@ void ppc_init(const PPC_CONFIG *config)
 	}
 
 	ppc.hid1 = pll_config << 28;
+
 }
 
 void ppc_shutdown(void)
@@ -764,8 +772,14 @@ void ppc_set_irq_line(int irqline)
 {
 	if (irqline)
 	{
-		ppc.interrupt_pending |= 0x1;
-		ppc603_check_interrupts();
+		ppc.interrupt_pending |= 0x1 | 0x8;  // 0x8 triggers JIT fast-exit (chained epilogue CBNZ)
+		// Guard: ppc603_check_interrupts() modifies MSR[EE] and npc via ppc603_exception().
+		// Calling it while a JIT block is mid-execution corrupts those fields before the block
+		// returns, leaving EE=0 so jit_done skips IRQ delivery permanently.
+		// When s_jit_executing is true the interrupt_pending bits above are sufficient —
+		// the chained epilogue's CBNZ exits the chain and jit_done delivers the interrupt safely.
+		if (!s_jit_executing)
+			ppc603_check_interrupts();
 	}
 	else
 	{
@@ -801,6 +815,11 @@ int ppc_get_bus_freq_multipler()
 void ppc_set_timer_ratio(int ratio)
 {
 	ppc.timer_ratio = ratio;
+}
+
+void ppc_set_jit_enabled(bool enabled)
+{
+	s_ppc_jit_enabled = enabled;
 }
 
 int ppc_get_timer_ratio()
