@@ -6,6 +6,8 @@
 #include <sys/mman.h>
 #include <cstring>
 #include <cstdio>
+#include "../../../../OSD/Logger.h"
+#define JIT_LOG(...) DebugLog("[JIT] " __VA_ARGS__)
 
 // ---------------------------------------------------------------------------
 // Function pointer table indices (8 bytes each, packed at m_code_buf[0])
@@ -57,16 +59,22 @@ bool JitArm64::init()
         m_code_buf  = (uint8_t *)p;
         m_write_buf = m_code_buf;
         m_dual_map  = false;
+        JIT_LOG("init: RWX mmap OK, buf=%p size=%zuMB", m_code_buf, CODE_BUF_SIZE >> 20);
     } else {
         // Fallback: allocate RW, compile blocks there, mprotect to RX before execution.
         // On Android 10+ this is the only reliable approach.
+        JIT_LOG("init: RWX mmap failed (errno=%d), trying RW+mprotect fallback", errno);
         p = mmap(nullptr, CODE_BUF_SIZE,
                  PROT_READ | PROT_WRITE,
                  MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-        if (p == MAP_FAILED) return false;
+        if (p == MAP_FAILED) {
+            JIT_LOG("init: RW mmap also failed (errno=%d) — JIT disabled", errno);
+            return false;
+        }
         m_write_buf = (uint8_t *)p;
         m_code_buf  = m_write_buf;
         m_dual_map  = false;
+        JIT_LOG("init: RW mmap OK, buf=%p — will mprotect RX before exec", m_code_buf);
     }
 
     // Fill function pointer table at the very start of the write buffer.
@@ -115,6 +123,7 @@ void JitArm64::shutdown()
 void JitArm64::flush()
 {
     m_cache.clear();
+    m_fixups.clear();
     // Preserve the function pointer table and call stubs at offset 0; blocks restart after.
     m_code_pos = (g_fn_tbl != nullptr) ? BLOCK_START : 0;
     memset(m_fast_cache, 0, sizeof(m_fast_cache));
@@ -128,16 +137,26 @@ JitBlock *JitArm64::get_or_compile(uint32_t pc)
     // Fast path: direct-mapped cache (avoids hash map for hot blocks)
     uint32_t slot = (pc >> 2) & FAST_CACHE_MASK;
     JitBlock *blk = m_fast_cache[slot];
-    if (blk && blk->start_pc == pc) return blk;
+    if (blk && blk->start_pc == pc) {
+        m_stats.fast_hits++;
+        m_stats.block_executions++;
+        return blk;
+    }
 
     // Slow path: hash map lookup or compilation
     auto it = m_cache.find(pc);
     if (it != m_cache.end()) {
         m_fast_cache[slot] = &it->second;
+        m_stats.block_executions++;
         return &it->second;
     }
     blk = compile(pc);
-    if (blk) m_fast_cache[slot] = blk;
+    if (blk) {
+        m_fast_cache[slot] = blk;
+        m_stats.block_executions++;
+    } else {
+        m_stats.compile_failures++;
+    }
     return blk;
 }
 
@@ -599,17 +618,17 @@ static void emit_epilogue(Arm64Emitter &e, int inst_count, uint32_t last_pc, uin
 }
 
 // Tail-call epilogue for a statically-known block target already compiled.
-// Updates icount, mirrors the dispatch-loop dec_trigger and interrupt checks,
-// then — if cycles remain and nothing is pending — tail-calls target_fn directly
-// (no dispatch-loop roundtrip).  pc/npc are only written on the slow-exit path
-// (icount exhausted / interrupt / fatal) so the dispatch loop can restart.
+// Updates icount, checks for pending interrupts/fatal errors, then — if nothing
+// is pending — tail-calls target_fn directly (no dispatch-loop roundtrip).
+// On the slow-exit path (icount exhausted / interrupt / fatal), writes pc/npc
+// and returns to the C++ dispatch loop which delivers the interrupt.
 // Both target_fn and this code must be within the same 16 MB code buffer. ✓
 //
-// Register usage: W4 = new_icount (preserved across checks).
+// Register usage: W4 used for both icount and interrupt_pending checks.
 // fatalError is mirrored into interrupt_pending bit 3 (0x8) by all fatal-setting
 // sites, so a single LDR+CBNZ on interrupt_pending covers both.
 //
-// Fast path ARM instructions (normal case): ~12 vs ~20 in the previous version.
+// Fast path ARM instructions (normal case): ~10 (icount+irq check+tail call).
 static void emit_epilogue_chained(Arm64Emitter &e, int inst_count, uint32_t last_pc,
                                    uint32_t next_pc, void *target_fn)
 {
@@ -626,19 +645,11 @@ static void emit_epilogue_chained(Arm64Emitter &e, int inst_count, uint32_t last
     // Early exit when icount <= 0.  Flags from SUBS survive STR/MOV/STP — no CMP needed.
     uint32_t *exit_icount = e.emit_B_COND_placeholder(A64_LE);   // B.LE slow_exit
 
-    // Mirror dispatch-loop: if (new_icount <= dec_trigger_cycle) interrupt_pending |= 2
-    e.LDR_W(W1, PPC_PTR, (uint32_t)OFF_DEC_TRIGGER);
-    e.CMP_W(W4, W1);
-    uint32_t *dec_ok = e.emit_B_COND_placeholder(A64_GT);        // B.GT skip_dec_set
-    e.LDR_W(W0, PPC_PTR, (uint32_t)OFF_INT_PENDING);
-    e.ORR_W_SET_BIT(W0, W0, 1);   // set decrementer-pending bit (bit 1 = 0x2)
-    e.STR_W(W0, PPC_PTR, (uint32_t)OFF_INT_PENDING);
-    uint32_t *exit_dec = e.emit_B_placeholder();                  // B slow_exit (int pending)
-    e.patch_B_COND(dec_ok, e.ptr());
-
-    // Exit if any interrupt or fatal error pending (fatalError mirrored into bit 3)
-    e.LDR_W(W0, PPC_PTR, (uint32_t)OFF_INT_PENDING);
-    uint32_t *exit_int = e.emit_CBNZ_W_placeholder(W0);          // CBNZ slow_exit
+    // Exit if any interrupt or fatal error is pending (reuse W4; fatalError mirrors into bit 3).
+    // Required so tight spin loops (e.g. waiting on a flag set by an IRQ handler) don't starve
+    // interrupt delivery by chaining indefinitely without returning to the C++ dispatch loop.
+    e.LDR_W(W4, PPC_PTR, OFF_INT_PENDING);
+    uint32_t *exit_irq = e.emit_CBNZ_W_placeholder(W4);          // CBNZ slow_exit
 
     // Fast path: tail call; X0 = PPC_REGS* for callee prologue
     e.MOV_X(0, PPC_PTR);
@@ -649,13 +660,86 @@ static void emit_epilogue_chained(Arm64Emitter &e, int inst_count, uint32_t last
     // Slow exit: write pc/npc so the dispatch loop can restart, then return
     uint32_t *slow_exit = e.ptr();
     e.patch_B_COND(exit_icount, slow_exit);
-    e.patch_B(exit_dec, slow_exit);
-    e.patch_CBZ(exit_int, slow_exit);
+    e.patch_CBZ(exit_irq, slow_exit);
     e.MOV_W32(W0, last_pc);
     e.MOV_W32(W1, next_pc);
     e.STP_W(W0, W1, PPC_PTR, OFF_PC);
     e.LDP_post(PPC_PTR, 30, A64_SP, 16);
     e.RET();
+}
+
+// Deferred-chaining epilogue: same icount check as emit_epilogue_chained,
+// but the tail-call target is initially a fallback (writes pc/npc and returns to C++),
+// and will be backpatched to the actual target block once that block is compiled.
+//
+// Returns the address of the patchable B instruction in the fast path.
+// The caller must register it with JitArm64::m_fixups[next_pc].
+//
+// Register usage after LDP (in fallback path): X16 holds ppc ptr (saved before LDP).
+static uint32_t* emit_epilogue_deferred(Arm64Emitter &e, int inst_count,
+                                         uint32_t last_pc, uint32_t next_pc)
+{
+    // icount check (same as emit_epilogue_chained)
+    e.LDR_W(W4, PPC_PTR, OFF_ICOUNT);
+    if (inst_count <= 4095)
+        e.SUBS_W_IMM(W4, W4, (uint32_t)inst_count);
+    else {
+        e.MOV_W32(W0, (uint32_t)inst_count);
+        e.SUBS_W(W4, W4, W0);
+    }
+    e.STR_W(W4, PPC_PTR, OFF_ICOUNT);
+    uint32_t *exit_icount = e.emit_B_COND_placeholder(A64_LE);
+
+    // Exit if any interrupt or fatal error is pending (same reason as emit_epilogue_chained).
+    e.LDR_W(W4, PPC_PTR, OFF_INT_PENDING);
+    uint32_t *exit_irq = e.emit_CBNZ_W_placeholder(W4);
+
+    // Fast path: save ppc ptr in X16, restore callee-saved regs, then fixup B.
+    // X16 (IP0) is not preserved by LDP and survives into the fallback path.
+    e.MOV_X(0, PPC_PTR);             // X0 = ppc ptr (arg for target block prologue)
+    e.MOV_X(X16, PPC_PTR);           // X16 = ppc ptr (for fallback pc/npc write)
+    e.LDP_post(PPC_PTR, 30, A64_SP, 16);
+
+    // Fixup B: initially branches to fallback immediately below; patched to target_fn.
+    uint32_t *fixup_site = e.emit_B_placeholder();
+
+    // Fallback path (reached while target not yet compiled): write pc/npc via X16, RET.
+    uint32_t *fallback = e.ptr();
+    e.patch_B(fixup_site, fallback);  // B #0 → B to fallback
+    e.MOV_W32(W1, last_pc);
+    e.MOV_W32(W2, next_pc);
+    e.STR_W(W1, X16, (uint32_t)OFF_PC);
+    e.STR_W(W2, X16, (uint32_t)OFF_NPC);
+    e.RET();
+
+    // Slow exit (icount exhausted or interrupt pending): write pc/npc via X19, LDP, RET.
+    uint32_t *slow_exit = e.ptr();
+    e.patch_B_COND(exit_icount, slow_exit);
+    e.patch_CBZ(exit_irq, slow_exit);
+    e.MOV_W32(W0, last_pc);
+    e.MOV_W32(W1, next_pc);
+    e.STP_W(W0, W1, PPC_PTR, OFF_PC);
+    e.LDP_post(PPC_PTR, 30, A64_SP, 16);
+    e.RET();
+
+    return fixup_site;
+}
+
+// Apply all pending fixups for a newly-compiled block (retroactive backpatching).
+// Patches each registered B instruction to tail-call target_arm directly.
+static size_t apply_fixups(std::unordered_map<uint32_t, std::vector<uint32_t*>> &fixup_map,
+                            uint32_t ppc_pc, uint8_t *target_arm)
+{
+    auto it = fixup_map.find(ppc_pc);
+    if (it == fixup_map.end()) return 0;
+    size_t n = it->second.size();
+    for (uint32_t *site : it->second) {
+        int off = (int)(((uint32_t*)target_arm - site) * 4);
+        *site = 0x14000000u | ((uint32_t)(off / 4) & 0x3FFFFFFu);
+        __builtin___clear_cache((char*)site, (char*)(site + 1));
+    }
+    fixup_map.erase(it);
+    return n;
 }
 
 // ---------------------------------------------------------------------------
@@ -2010,6 +2094,7 @@ static bool translate_op31_store_xu(Arm64Emitter &e, int rS, int rA, int rB, voi
 // Returns true if block is terminated (always for bc).
 // taken_fn / not_taken_fn: if non-null, use chained epilogue for that path.
 static bool translate_bc(Arm64Emitter &e, uint32_t op, uint32_t pc, int inst_count,
+                          std::vector<std::pair<uint32_t, uint32_t*>> &pending_fixups,
                           void *taken_fn = nullptr, void *not_taken_fn = nullptr)
 {
     int bo = (op >> 21) & 0x1F;
@@ -2029,8 +2114,10 @@ static bool translate_bc(Arm64Emitter &e, uint32_t op, uint32_t pc, int inst_cou
         if (lk) { e.MOV_W32(W0, pc + 4); e.STR_W(W0, PPC_PTR, OFF_LR); }
         if (taken_fn)
             emit_epilogue_chained(e, inst_count + 1, pc, taken_target, taken_fn);
-        else
-            emit_epilogue(e, inst_count + 1, pc, taken_target);
+        else {
+            uint32_t *site = emit_epilogue_deferred(e, inst_count + 1, pc, taken_target);
+            pending_fixups.push_back({taken_target, site});
+        }
         return true;
     }
 
@@ -2047,10 +2134,16 @@ static bool translate_bc(Arm64Emitter &e, uint32_t op, uint32_t pc, int inst_cou
         // bdz→taken when EQ; bdnz→taken when NE; not_taken → opposite
         uint32_t *nt = e.emit_B_COND_placeholder(ctr_zero ? A64_NE : A64_EQ);
         if (taken_fn)  emit_epilogue_chained(e, inst_count + 1, pc, taken_target, taken_fn);
-        else           emit_epilogue(e, inst_count + 1, pc, taken_target);
+        else {
+            uint32_t *site = emit_epilogue_deferred(e, inst_count + 1, pc, taken_target);
+            pending_fixups.push_back({taken_target, site});
+        }
         e.patch_B_COND(nt, e.ptr());
         if (not_taken_fn) emit_epilogue_chained(e, inst_count + 1, pc, pc + 4, not_taken_fn);
-        else              emit_epilogue(e, inst_count + 1, pc, pc + 4);
+        else {
+            uint32_t *site = emit_epilogue_deferred(e, inst_count + 1, pc, pc + 4);
+            pending_fixups.push_back({pc + 4, site});
+        }
         return true;
     }
 
@@ -2066,10 +2159,16 @@ static bool translate_bc(Arm64Emitter &e, uint32_t op, uint32_t pc, int inst_cou
         uint32_t *nt = cond_on_clear ? e.emit_TBNZ_W_placeholder(W1, bitpos)
                                      : e.emit_TBZ_W_placeholder(W1, bitpos);
         if (taken_fn)  emit_epilogue_chained(e, inst_count + 1, pc, taken_target, taken_fn);
-        else           emit_epilogue(e, inst_count + 1, pc, taken_target);
+        else {
+            uint32_t *site = emit_epilogue_deferred(e, inst_count + 1, pc, taken_target);
+            pending_fixups.push_back({taken_target, site});
+        }
         e.patch_TBZ(nt, e.ptr());
         if (not_taken_fn) emit_epilogue_chained(e, inst_count + 1, pc, pc + 4, not_taken_fn);
-        else              emit_epilogue(e, inst_count + 1, pc, pc + 4);
+        else {
+            uint32_t *site = emit_epilogue_deferred(e, inst_count + 1, pc, pc + 4);
+            pending_fixups.push_back({pc + 4, site});
+        }
         return true;
     }
 
@@ -2099,10 +2198,16 @@ static bool translate_bc(Arm64Emitter &e, uint32_t op, uint32_t pc, int inst_cou
     // cond_on_clear: taken when Z=0, skip on Z=1 → B.EQ
     uint32_t *nt = e.emit_B_COND_placeholder(cond_on_clear ? A64_EQ : A64_NE);
     if (taken_fn)  emit_epilogue_chained(e, inst_count + 1, pc, taken_target, taken_fn);
-    else           emit_epilogue(e, inst_count + 1, pc, taken_target);
+    else {
+        uint32_t *site = emit_epilogue_deferred(e, inst_count + 1, pc, taken_target);
+        pending_fixups.push_back({taken_target, site});
+    }
     e.patch_B_COND(nt, e.ptr());
     if (not_taken_fn) emit_epilogue_chained(e, inst_count + 1, pc, pc + 4, not_taken_fn);
-    else              emit_epilogue(e, inst_count + 1, pc, pc + 4);
+    else {
+        uint32_t *site = emit_epilogue_deferred(e, inst_count + 1, pc, pc + 4);
+        pending_fixups.push_back({pc + 4, site});
+    }
     return true;
 }
 
@@ -2629,6 +2734,14 @@ JitBlock *JitArm64::compile(uint32_t start_pc)
     bool terminated = false;
     uint32_t exit_npc = start_pc;   // fallthrough target
 
+    // Deferred fixup sites collected during compilation of this block.
+    // Each entry is {target_ppc_pc, arm_B_instruction_address}.
+    std::vector<std::pair<uint32_t, uint32_t*>> pending_fixups;
+    auto dep_ep = [&](int ic, uint32_t lpc, uint32_t npc) {
+        uint32_t *site = emit_epilogue_deferred(e, ic, lpc, npc);
+        pending_fixups.push_back({npc, site});
+    };
+
     while (inst_count < MAX_BLOCK_INSTS && !terminated && !e.full()) {
         uint32_t op = ppc_read_opcode_at(pc);
         if (op == 0) {
@@ -2694,10 +2807,10 @@ JitBlock *JitArm64::compile(uint32_t start_pc)
                         // B.cond_inv skips the taken path; fall through to not-taken
                         uint32_t *nt = e.emit_B_COND_placeholder(a64_cond ^ 1);
                         if (taken_fn) emit_epilogue_chained(e, inst_count + 2, bc_pc, taken_target, taken_fn);
-                        else          emit_epilogue(e, inst_count + 2, bc_pc, taken_target);
+                        else          dep_ep(inst_count + 2, bc_pc, taken_target);
                         e.patch_B_COND(nt, e.ptr());
                         if (not_taken_fn) emit_epilogue_chained(e, inst_count + 2, bc_pc, not_taken_target, not_taken_fn);
-                        else              emit_epilogue(e, inst_count + 2, bc_pc, not_taken_target);
+                        else              dep_ep(inst_count + 2, bc_pc, not_taken_target);
 
                         inst_count++;    // bc; loop bottom adds +1 for cmp
                         pc       += 4;   // skip bc; loop bottom advances past cmp
@@ -2824,7 +2937,7 @@ JitBlock *JitArm64::compile(uint32_t start_pc)
                 if (it != m_cache.end()) taken_fn = (void *)it->second.fn;
                 it = m_cache.find(not_taken_target);
                 if (it != m_cache.end()) not_taken_fn = (void *)it->second.fn;
-                handled = translate_bc(e, op, pc, inst_count, taken_fn, not_taken_fn);
+                handled = translate_bc(e, op, pc, inst_count, pending_fixups, taken_fn, not_taken_fn);
             }
             terminated = true;
             break;
@@ -2842,7 +2955,7 @@ JitBlock *JitArm64::compile(uint32_t start_pc)
             if (target_fn)
                 emit_epilogue_chained(e, inst_count + 1, pc, target, target_fn);
             else
-                emit_epilogue(e, inst_count + 1, pc, target);
+                dep_ep(inst_count + 1, pc, target);
             terminated = true;
             handled = true;
             break;
@@ -3037,10 +3150,10 @@ JitBlock *JitArm64::compile(uint32_t start_pc)
 
                     uint32_t *nt = e.emit_B_COND_placeholder(a64_cond ^ 1);
                     if (taken_fn) emit_epilogue_chained(e, inst_count + 2, bc_pc, taken_target, taken_fn);
-                    else          emit_epilogue(e, inst_count + 2, bc_pc, taken_target);
+                    else          dep_ep(inst_count + 2, bc_pc, taken_target);
                     e.patch_B_COND(nt, e.ptr());
                     if (not_taken_fn) emit_epilogue_chained(e, inst_count + 2, bc_pc, not_taken_target, not_taken_fn);
-                    else              emit_epilogue(e, inst_count + 2, bc_pc, not_taken_target);
+                    else              dep_ep(inst_count + 2, bc_pc, not_taken_target);
 
                     inst_count++;
                     pc       += 4;
@@ -3065,7 +3178,7 @@ JitBlock *JitArm64::compile(uint32_t start_pc)
     // Epilogue (fall-through case or instruction limit hit)
     // -----------------------------------------------------------------------
     if (!terminated) {
-        emit_epilogue(e, inst_count, pc - 4, exit_npc);
+        dep_ep(inst_count, pc - 4, exit_npc);
     }
 
     // -----------------------------------------------------------------------
@@ -3097,8 +3210,57 @@ JitBlock *JitArm64::compile(uint32_t start_pc)
     blk.inst_count = inst_count;
     blk.fn         = (void (*)(PPC_REGS *))block_start;
 
+    m_stats.blocks_compiled++;
     m_cache[start_pc] = blk;
+
+    // Apply retroactive fixups: patch any sites that were waiting for this block
+    m_stats.fixups_applied += apply_fixups(m_fixups, start_pc, (uint8_t *)block_start);
+    // Register deferred fixups from this block for future backpatching
+    for (auto &p : pending_fixups) {
+        m_fixups[p.first].push_back(p.second);
+        m_stats.fixups_registered++;
+    }
+
     return &m_cache[start_pc];
 }
+
+void JitArm64::log_stats() const
+{
+    uint64_t total = m_stats.block_executions;
+    uint64_t fast  = m_stats.fast_hits;
+    uint64_t slow  = total > fast ? total - fast : 0;
+    size_t code_kb = m_code_pos / 1024;
+    JIT_LOG("compiled=%llu execs=%llu (fast=%llu slow=%llu) failures=%llu cache=%zu code=%zuKB",
+        (unsigned long long)m_stats.blocks_compiled,
+        (unsigned long long)total,
+        (unsigned long long)fast,
+        (unsigned long long)slow,
+        (unsigned long long)m_stats.compile_failures,
+        m_cache.size(),
+        code_kb);
+}
+
+#ifdef ANDROID
+#include <algorithm>
+#include <android/log.h>
+void JitArm64::dump_compiled_pcs(uint32_t lo, uint32_t hi) const
+{
+    std::vector<uint32_t> pcs;
+    pcs.reserve(256);
+    for (auto &kv : m_cache)
+        if (kv.first >= lo && kv.first < hi)
+            pcs.push_back(kv.first);
+    std::sort(pcs.begin(), pcs.end());
+    __android_log_print(3, "SupermodelDBG",
+        "JIT cache: %zu total blocks, %zu in [%08X-%08X]",
+        m_cache.size(), pcs.size(), lo, hi);
+    for (size_t i = 0; i < pcs.size(); i++) {
+        auto it = m_cache.find(pcs[i]);
+        __android_log_print(3, "SupermodelDBG",
+            "  [%03zu] pc=%08X end=%08X insts=%d",
+            i, pcs[i], it->second.end_pc, it->second.inst_count);
+    }
+}
+#endif
 
 #endif // __aarch64__

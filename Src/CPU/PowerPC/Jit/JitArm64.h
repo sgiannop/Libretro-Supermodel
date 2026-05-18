@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstddef>
 #include <unordered_map>
+#include <vector>
 #include "../ppc_regs.h"
 
 // Forward declarations from the interpreter (defined in ppc.cpp/ppc603.c)
@@ -66,6 +67,25 @@ public:
 
     bool is_available() const { return m_code_buf != nullptr; }
 
+    // Telemetry
+    struct Stats {
+        uint64_t blocks_compiled;   // total compile() calls that succeeded
+        uint64_t block_executions;  // total get_or_compile() calls that returned a block
+        uint64_t fast_hits;         // direct-mapped cache hits (hot path)
+        uint64_t compile_failures;  // compile() returned nullptr
+        uint64_t fixups_registered; // deferred fixup sites registered for backpatching
+        uint64_t fixups_applied;    // fixup sites actually patched when target compiled
+    };
+    const Stats &get_stats() const { return m_stats; }
+    void log_stats() const;
+    size_t cache_size() const { return m_cache.size(); }
+    size_t code_kb()    const { return m_code_pos / 1024; }
+
+#ifdef ANDROID
+    // Dump all compiled PCs in [lo, hi) to Android logcat (tag SupermodelDBG).
+    void dump_compiled_pcs(uint32_t lo, uint32_t hi) const;
+#endif
+
     // Function pointer table: reserved at the very start of the code buffer.
     // Function pointer table: 16 entries × 8 bytes = 128 bytes.
     // Stubs: 16 entries × 12 bytes = 192 bytes.  Both at the start of the code
@@ -89,6 +109,10 @@ private:
     // Block cache: guest PC → JitBlock
     std::unordered_map<uint32_t, JitBlock> m_cache;
 
+    // Backpatch fixups: guest PC → list of B-instruction addresses in compiled code
+    // that should be patched to jump directly to the block once it is compiled.
+    std::unordered_map<uint32_t, std::vector<uint32_t*>> m_fixups;
+
     // Direct-mapped fast lookup: avoids hash map on repeated block entries.
     // Indexed by (pc >> 2) & (FAST_CACHE_MASK). Null means no entry for that slot.
     static constexpr uint32_t FAST_CACHE_SIZE = 4096;
@@ -96,6 +120,8 @@ private:
     JitBlock *m_fast_cache[FAST_CACHE_SIZE] = {};
 
     bool m_dual_map = false;  // true when write ptr != exec ptr
+
+    Stats m_stats = {};
 };
 
 #endif // __aarch64__
