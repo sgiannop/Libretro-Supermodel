@@ -1771,7 +1771,6 @@ void CModel3::Write32(UINT32 addr, UINT32 data)
       break;
     }
 
-    DebugLog("PC=%08X\twrite32: %08X=%08X\n", ppc_get_pc(), addr, data);
     break;
 
   // Tile generator
@@ -1858,7 +1857,6 @@ void CModel3::Write32(UINT32 addr, UINT32 data)
       if (m_runNetBoard) printf("CMODEL3 : unknown W32 : %x (%x) data=%d\n", addr,addr >> 24,data);
 #endif
     //printf("PC=%08X\twrite32: %08X=%08X\n", ppc_get_pc(), addr, data);
-    DebugLog("PC=%08X\twrite32: %08X=%08X\n", ppc_get_pc(), addr, data);
     break;
   }
 }
@@ -2188,6 +2186,7 @@ void CModel3::RunMainBoardFrame(bool skipRender)
     }
 
 	timings.ppcTicks = CThread::GetTicks() - start;
+	{ static int s_ft = 0; if (++s_ft % 5 == 0) DumpTimings(); }
 }
 
 void CModel3::SyncGPUs(void)
@@ -2503,7 +2502,7 @@ void CModel3::DeleteThreadObjects(void)
 
 void CModel3::DumpTimings(void)
 {
-  printf("PPC:%3ums%c render:%3ums%c sync:%4uK%c%3ums%c snd:%3ums%c drv:%3ums%c frame:%3ums%c\n",
+  InfoLog("PPC:%3ums%c render:%3ums%c sync:%4uK%c%3ums%c snd:%3ums%c drv:%3ums%c frame:%3ums%c",
     timings.ppcTicks, (timings.ppcTicks > timings.renderTicks ? '!' : ','),
     timings.renderTicks, (timings.renderTicks > timings.ppcTicks ? '!' : ','),
     timings.syncSize / 1024, (timings.syncSize / 1024 > 128 ? '!' : ','),

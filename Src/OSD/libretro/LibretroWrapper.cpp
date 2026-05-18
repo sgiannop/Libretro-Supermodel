@@ -69,6 +69,10 @@ public:
 
 void CRetroArchLogger::DebugLog(const char *fmt, va_list vl)
 {
+#ifndef DEBUG
+    (void)fmt; (void)vl;
+    return;
+#endif
 #ifdef ANDROID
     va_list vl_copy;
     va_copy(vl_copy, vl);

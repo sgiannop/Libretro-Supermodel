@@ -49,6 +49,7 @@
 #include "Supermodel.h"
 #include "CPU/PowerPC/ppc.h"
 
+
 /******************************************************************************
  Save States
 ******************************************************************************/
@@ -173,10 +174,10 @@ void C53C810::Run(bool singleStep)
     Ctx.regDBC = op&0x00FFFFFF;
     Ctx.regDCMD = (op>>24)&0xFF;
     Ctx.regDSPS = Fetch(&Ctx, 4); // word 2
-    
+
     // Single step
     OpTable[Ctx.regDCMD](&Ctx);
-    
+
     // Issue IRQ and finish
     Ctx.regISTAT |= 1;            // DMA interrupt pending
     Ctx.regDSTAT |= 8;            // single step interrupt
@@ -237,7 +238,7 @@ void C53C810::WriteRegister(unsigned reg, UINT8 data)
   }
   
   DebugLog("53C810 write: %02X=%02X (PC=%08X, LR=%08X)\n", reg, data, ppc_get_pc(), ppc_get_lr());
-  
+
   // Dump everything into the register file
   Ctx.regs[reg&0xFF] = data;
   
@@ -247,7 +248,6 @@ void C53C810::WriteRegister(unsigned reg, UINT8 data)
   {
   case 0x14:    // ISTAT
     Ctx.regISTAT = data;
-    DebugLog("ISTAT=%02X\n", data);
     break;
   case 0x1C:    // TEMP 7-0
     Ctx.regTEMP &= 0xFFFFFF00;
@@ -365,13 +365,9 @@ UINT8 C53C810::ReadRegister(unsigned reg)
     //TO-DO: manual says these should be cleared here but MAME never clears them. What's up with that?
     Ctx.regISTAT &= 0xFE; // clear DIP bit (DMA interrupt)
     Ctx.regDSTAT &= 0xF7; // clear SSI (single step interrupt)
-    //Ctx.regISTAT |= 1;  // doing this is another way to fix VF3
-    //Ctx.regDSTAT |= 8;
     Ctx.IRQ->Deassert(Ctx.scsiIRQ);
-    //DebugLog("53C810: DSTAT read\n");
     return ret;
   case 0x14:    // ISTAT
-    //DebugLog("53C810: ISTAT read\n");
     return Ctx.regISTAT;
   case 0x1C:    // TEMP 7-0
     return Ctx.regTEMP&0xFF;

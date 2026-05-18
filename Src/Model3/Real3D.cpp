@@ -956,7 +956,7 @@ Stat Packet
 */
 uint32_t CReal3D::ReadRegister(unsigned reg)
 {
-  DebugLog("Real3D: Read reg %X\n", reg);
+  //DebugLog("Real3D: Read reg %X\n", reg);
   if (reg == 0)
   {
 	  uint32_t ping_pong = (m_pingPong ? 0x02000000 : 0x0);
