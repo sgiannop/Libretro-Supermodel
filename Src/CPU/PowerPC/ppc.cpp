@@ -227,18 +227,35 @@ static inline UINT64 READ64(UINT32 address)
 	return Bus->Read64(address);
 }
 
+#ifdef __aarch64__
+// Forward declaration — defined after JitArm64.h is included below.
+// Routes interpreter stores through the SMC page-bitmap check so that
+// self-modifying code patching (e.g. VF4 patching 0x61CF8 via emit_fallback)
+// is detected and the stale JIT block is invalidated.
+static void ppc_smc_write(UINT32 addr);
+#endif
+
 static inline void WRITE8(UINT32 address, UINT8 data)
 {
+#ifdef __aarch64__
+	ppc_smc_write(address);
+#endif
 	Bus->Write8(address,data);
 }
 
 static inline void WRITE16(UINT32 address, UINT16 data)
 {
+#ifdef __aarch64__
+	ppc_smc_write(address);
+#endif
 	Bus->Write16(address,data);
 }
 
 static inline void WRITE32(UINT32 address, UINT32 data)
 {
+#ifdef __aarch64__
+	ppc_smc_write(address);
+#endif
 	Bus->Write32(address,data);
 }
 
@@ -560,6 +577,9 @@ static void (* optable[64])(UINT32);
 
 #ifdef __aarch64__
 #include "Jit/JitArm64.h"
+
+// Definition of the SMC forward-declared above.
+static void ppc_smc_write(UINT32 addr) { JitArm64::get().smc_write(addr); }
 #endif
 
 // True while a JIT-compiled block is executing (set/cleared around blk->fn()
@@ -1133,13 +1153,19 @@ UINT32 jit_read32(UINT32 addr)            { return Bus->Read32(addr); }
 UINT64 jit_read64(UINT32 addr)            { return Bus->Read64(addr); }
 UINT32 jit_read_tbl(void)                 { return (UINT32)ppc_read_timebase(); }
 UINT32 jit_read_tbu(void)                 { return (UINT32)(ppc_read_timebase() >> 32); }
-void   jit_write8(UINT32 addr, UINT32 d)  { Bus->Write8(addr, (UINT8)d); }
-void   jit_write16(UINT32 addr, UINT32 d) { Bus->Write16(addr, (UINT16)d); }
-void   jit_write32(UINT32 addr, UINT32 d) { Bus->Write32(addr, d); }
+
+// SMC helper: invalidate any JIT block whose PC range covers addr.
+static inline void smc_check(UINT32 addr) { JitArm64::get().smc_write(addr); }
+
+void   jit_write8(UINT32 addr, UINT32 d)  { smc_check(addr); Bus->Write8(addr, (UINT8)d); }
+void   jit_write16(UINT32 addr, UINT32 d) { smc_check(addr); Bus->Write16(addr, (UINT16)d); }
+void   jit_write32(UINT32 addr, UINT32 d) { smc_check(addr); Bus->Write32(addr, d); }
 void   jit_write64(UINT32 addr, UINT64 d) { Bus->Write64(addr, d); }
 
-// FP estimate helpers: called with argument in D0, return result in D0 (AAPCS64 FP ABI)
+
+// FP helpers: called with argument in D0, return result in D0 (AAPCS64 FP ABI)
 double jit_fres(double x)    { return (double)(1.0f / (float)x); }
 double jit_frsqrte(double x) { return 1.0 / sqrt(x); }
+double jit_frsp(double x)    { return (double)(float)x; }
 
 } // extern "C"

@@ -26,7 +26,8 @@ enum {
     FN_JIT_FRES        = 10,
     FN_JIT_FRSQRTE     = 11,
     FN_PPC_DISPATCH    = 12,
-    // indices 13-15 reserved
+    FN_JIT_FRSP        = 13,
+    // indices 14-15 reserved
 };
 static_assert(FN_PPC_DISPATCH < JitArm64::FN_TABLE_ENTRIES, "FN table overflow");
 
@@ -92,6 +93,7 @@ bool JitArm64::init()
     tbl[FN_JIT_FRES]     = (void *)&jit_fres;
     tbl[FN_JIT_FRSQRTE]  = (void *)&jit_frsqrte;
     tbl[FN_PPC_DISPATCH] = (void *)&ppc_dispatch_opcode;
+    tbl[FN_JIT_FRSP]     = (void *)&jit_frsp;
     g_fn_tbl = m_write_buf;
 
     // Emit call stubs immediately after the table. Each stub is 3 instructions
@@ -127,6 +129,31 @@ void JitArm64::flush()
     // Preserve the function pointer table and call stubs at offset 0; blocks restart after.
     m_code_pos = (g_fn_tbl != nullptr) ? BLOCK_START : 0;
     memset(m_fast_cache, 0, sizeof(m_fast_cache));
+    memset(m_code_pages,  0, sizeof(m_code_pages));
+}
+
+void JitArm64::invalidate_containing(uint32_t addr)
+{
+    for (auto it = m_cache.begin(); it != m_cache.end(); ) {
+        const JitBlock &blk = it->second;
+        if (addr >= blk.start_pc && addr < blk.end_pc) {
+            uint32_t slot = (blk.start_pc >> 2) & FAST_CACHE_MASK;
+            if (m_fast_cache[slot] == &blk)
+                m_fast_cache[slot] = nullptr;
+            it = m_cache.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    // Leave m_code_pages bits set — other blocks may still cover this page.
+    // Pages are only cleared by flush().
+}
+
+void JitArm64::smc_write(uint32_t addr)
+{
+    if ((addr >> 24) != 0u) return;                          // not work RAM
+    if (!m_code_pages[(addr >> 12) & (CODE_PAGE_COUNT - 1)]) return; // page has no JIT blocks
+    invalidate_containing(addr);
 }
 
 // ---------------------------------------------------------------------------
@@ -2383,18 +2410,13 @@ static bool translate_stfs(Arm64Emitter &e, uint32_t op, bool update)
 
     if (update && rA == 0) return false;
 
-    // Load FPR and convert to single-precision first (kept in D0)
     emit_load_fpr(e, D0, rS);        // D0 = FPR[rS] (double)
-    e.FCVT_S_D(D0, D0);              // S0/D0 = (float)D0 — round to single
-
-    // Compute EA into W0 (emit_load_ea_imm may clobber W1 for large offsets)
+    e.FCVT_S_D(D0, D0);              // S0/D0 = (float)D0
     emit_load_ea_imm(e, rA, simm);   // W0 = EA
     if (update) {
         emit_store_gpr(e, W0, rA);
     }
-
-    // Now move single-precision bits into W1 (D0 not touched by emit_load_ea_imm)
-    e.FMOV_W_S(W1, D0);              // W1 = float bits
+    e.FMOV_W_S(W1, D0);
     emit_call(e, (uint64_t)(void *)&jit_write32);
     return true;
 }
@@ -2455,12 +2477,8 @@ static bool translate_op63(Arm64Emitter &e, uint32_t op)
         emit_store_fpr(e, D0, rD);
         return true;
 
-    case 12:  // frsp rD, rB  (round to single precision)
-        emit_load_fpr(e, D0, rB);
-        e.FCVT_S_D(D0, D0);   // round to single
-        e.FCVT_D_S(D0, D0);   // extend back to double
-        emit_store_fpr(e, D0, rD);
-        return true;
+    case 12:  // frsp rD, rB  — fall back to interpreter (also updates FPSCR[FPRF])
+        return false;
 
     case 14:  // fctiw rD, rB  (round to integer using FPSCR rounding mode)
     // We ignore FPSCR rounding mode and truncate (same as fctiwz) — acceptable for game code
@@ -2609,8 +2627,12 @@ static bool translate_op63(Arm64Emitter &e, uint32_t op)
 // Opcode 59: floating-point single-precision arithmetic
 // Same as op63 but results are rounded to single precision after each op.
 // ---------------------------------------------------------------------------
+// TEST: force op59 to interpreter to isolate FP JIT bugs
+#define JIT_FORCE_INTERP_SP 1
+
 static bool translate_op59(Arm64Emitter &e, uint32_t op)
 {
+    if (JIT_FORCE_INTERP_SP) { (void)e; (void)op; return false; }
     int rD  = (op >> 21) & 0x1F;
     int rA  = (op >> 16) & 0x1F;
     int rB  = (op >> 11) & 0x1F;
@@ -2876,7 +2898,7 @@ JitBlock *JitArm64::compile(uint32_t start_pc)
         case 27: handled = translate_xoris(e, op);      break;
         case 28: handled = translate_andi_dot(e, op);   break;
         case 29: handled = translate_andis_dot(e, op);  break;
-        case 31: handled = translate_op31(e, op);       break;
+        case 31: handled = translate_op31(e, op); break;
 
         // D-form loads
         case 32: case 33: case 34: case 35:
@@ -3212,6 +3234,15 @@ JitBlock *JitArm64::compile(uint32_t start_pc)
 
     m_stats.blocks_compiled++;
     m_cache[start_pc] = blk;
+
+
+    // Mark every 4 KB page covered by this block so smc_write() can skip non-code pages.
+    if ((start_pc >> 24) == 0u) {
+        uint32_t p0 = start_pc >> 12;
+        uint32_t p1 = (blk.end_pc > 0 ? blk.end_pc - 1 : start_pc) >> 12;
+        for (uint32_t p = p0; p <= p1; ++p)
+            m_code_pages[p & (CODE_PAGE_COUNT - 1)] = 1;
+    }
 
     // Apply retroactive fixups: patch any sites that were waiting for this block
     m_stats.fixups_applied += apply_fixups(m_fixups, start_pc, (uint8_t *)block_start);

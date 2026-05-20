@@ -27,9 +27,10 @@ extern void      jit_write8(UINT32 addr, UINT32 data);
 extern void      jit_write16(UINT32 addr, UINT32 data);
 extern void      jit_write32(UINT32 addr, UINT32 data);
 extern void      jit_write64(UINT32 addr, UINT64 data);
-// FP estimate helpers: argument and return value in D0 (AAPCS64 FP convention)
+// FP helpers: argument and return value in D0 (AAPCS64 FP convention)
 extern double    jit_fres(double x);
 extern double    jit_frsqrte(double x);
+extern double    jit_frsp(double x);    // round double to single precision and back
 #ifdef __cplusplus
 }
 #endif
@@ -61,6 +62,14 @@ public:
 
     // Invalidate all compiled blocks (must be called on reset / ROM change)
     void flush();
+
+    // SMC: invalidate any cached block whose PC range covers addr.
+    void invalidate_containing(uint32_t addr);
+
+    // SMC fast path: page-bitmap check then invalidate_containing.
+    // O(1) for non-code pages (the common case); only scans the cache on a code-page hit.
+    // Call from every JIT write bridge that targets 0x00000000–0x00FFFFFF.
+    void smc_write(uint32_t addr);
 
     // Find or compile a block for the given PC. Returns nullptr on failure.
     JitBlock *get_or_compile(uint32_t pc);
@@ -120,6 +129,11 @@ private:
     JitBlock *m_fast_cache[FAST_CACHE_SIZE] = {};
 
     bool m_dual_map = false;  // true when write ptr != exec ptr
+
+    // Page bitmap for SMC: one byte per 4 KB page in 0x00000000–0x00FFFFFF (16 MB / 4 KB = 4096).
+    // Set when a block is compiled that covers the page; cleared only by flush().
+    static constexpr uint32_t CODE_PAGE_COUNT = 4096;
+    uint8_t m_code_pages[CODE_PAGE_COUNT] = {};
 
     Stats m_stats = {};
 };

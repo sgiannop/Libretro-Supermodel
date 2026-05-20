@@ -514,7 +514,7 @@ public:
     void FNEG_D(int Dd, int Dn)          { emit(0x1E614000 | (Dn<<5) | Dd); }
     void FABS_D(int Dd, int Dn)          { emit(0x1E60C000 | (Dn<<5) | Dd); }
     void FCMP_D(int Dn, int Dm)          { emit(0x1E602000 | (Dm<<16) | (Dn<<5)); }
-    void FCMP_D_ZERO(int Dn)             { emit(0x1E402008 | (Dn<<5)); }               // FCMP Dn, #0.0
+    void FCMP_D_ZERO(int Dn)             { emit(0x1E602008 | (Dn<<5)); }               // FCMP Dn, #0.0
     void FCSEL_D(int Dd, int Dn, int Dm, int cond) { emit(0x1E600C00 | (Dm<<16) | (cond<<12) | (Dn<<5) | Dd); }
     // Fused multiply-accumulate family (double precision): Dd = Da ± Dn*Dm
     void FMADD_D(int Dd, int Dn, int Dm, int Da)  { emit(0x1F400000 | (Dm<<16) | (Da<<10) | (Dn<<5) | Dd); } // Da + Dn*Dm
