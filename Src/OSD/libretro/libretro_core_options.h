@@ -220,6 +220,7 @@ static struct retro_core_option_v2_definition option_defs[] = {
       },
       "auto"
    },
+#ifdef __aarch64__
    {
       "supermodel_jit_enable",
       "JIT Recompiler (ARM64)",
@@ -234,6 +235,7 @@ static struct retro_core_option_v2_definition option_defs[] = {
       },
       "enabled"
    },
+#endif
    { NULL, NULL, NULL, NULL, NULL, NULL, {{0}}, NULL },
 };
 
@@ -296,7 +298,11 @@ void update_core_options(void)
    float current_ppc_mhz = (g_options.ppc_frequency > 0) ? g_options.ppc_frequency : 66.0f;
    AdjustAudioForCPUFrequency(current_ppc_mhz);
 
+#ifdef __aarch64__
    g_options.jit_enable = strcmp(option_get("supermodel_jit_enable", "enabled"), "enabled") == 0;
+#else
+   g_options.jit_enable = false;
+#endif
 
    // if (log_cb)
    // {
