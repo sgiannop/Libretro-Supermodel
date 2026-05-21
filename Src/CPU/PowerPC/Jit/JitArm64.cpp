@@ -2627,34 +2627,24 @@ static bool translate_op63(Arm64Emitter &e, uint32_t op)
 // Opcode 59: floating-point single-precision arithmetic
 // Same as op63 but results are rounded to single precision after each op.
 // ---------------------------------------------------------------------------
-// TEST: force op59 to interpreter to isolate FP JIT bugs
-#define JIT_FORCE_INTERP_SP 1
-
 static bool translate_op59(Arm64Emitter &e, uint32_t op)
 {
-    if (JIT_FORCE_INTERP_SP) { (void)e; (void)op; return false; }
     int rD  = (op >> 21) & 0x1F;
     int rA  = (op >> 16) & 0x1F;
     int rB  = (op >> 11) & 0x1F;
     int rC  = (op >> 6)  & 0x1F;
     int sub = (op >> 1) & 0x3FF;
 
-    // Helper macro pattern: compute in double, round to single, convert back
-#define STORE_SP(Dd, ppc_fpr) \
-    do { e.FCVT_S_D(Dd, Dd); e.FCVT_D_S(Dd, Dd); emit_store_fpr(e, Dd, ppc_fpr); } while(0)
+#define STORE_SP(Dd, ppc_fpr) do { e.FCVT_S_D(Dd, Dd); e.FCVT_D_S(Dd, Dd); emit_store_fpr(e, Dd, ppc_fpr); } while(0)
 
     switch (sub) {
+    case 20:  // fsubs rD, rA, rB — interpreter: block-extension causes visual corruption
+        return false;
+
     case 21:  // fadds rD, rA, rB
         emit_load_fpr(e, D0, rA);
         emit_load_fpr(e, D1, rB);
         e.FADD_D(D0, D0, D1);
-        STORE_SP(D0, rD);
-        return true;
-
-    case 20:  // fsubs rD, rA, rB
-        emit_load_fpr(e, D0, rA);
-        emit_load_fpr(e, D1, rB);
-        e.FSUB_D(D0, D0, D1);
         STORE_SP(D0, rD);
         return true;
 
@@ -2678,44 +2668,9 @@ static bool translate_op59(Arm64Emitter &e, uint32_t op)
         STORE_SP(D0, rD);
         return true;
 
-    case 29:  // fmadds rD, rA, rC, rB
-        emit_load_fpr(e, D0, rA);
-        emit_load_fpr(e, D1, rC);
-        emit_load_fpr(e, D2, rB);
-        e.FMADD_D(D0, D0, D1, D2);
-        STORE_SP(D0, rD);
-        return true;
-
-    case 28:  // fmsubs rD, rA, rC, rB  (rA*rC - rB)
-        emit_load_fpr(e, D0, rA);
-        emit_load_fpr(e, D1, rC);
-        emit_load_fpr(e, D2, rB);
-        e.FNMSUB_D(D0, D0, D1, D2);  // D0*D1 - D2 = rA*rC - rB
-        STORE_SP(D0, rD);
-        return true;
-
-    case 31:  // fnmadds rD, rA, rC, rB  (-(rA*rC + rB))
-        emit_load_fpr(e, D0, rA);
-        emit_load_fpr(e, D1, rC);
-        emit_load_fpr(e, D2, rB);
-        e.FNMADD_D(D0, D0, D1, D2);
-        STORE_SP(D0, rD);
-        return true;
-
-    case 30:  // fnmsubs rD, rA, rC, rB  (rB - rA*rC)
-        emit_load_fpr(e, D0, rA);
-        emit_load_fpr(e, D1, rC);
-        emit_load_fpr(e, D2, rB);
-        e.FMSUB_D(D0, D0, D1, D2);   // D2 - D0*D1 = rB - rA*rC
-        STORE_SP(D0, rD);
-        return true;
-
-    case 24: {  // fres frD, frB — reciprocal estimate (single precision)
-        emit_load_fpr(e, D0, rB);
-        emit_call(e, (uint64_t)(void *)&jit_fres);
-        emit_store_fpr(e, D0, rD);
-        return true;
-    }
+    // fmadds/fmsubs/fnmadds/fnmsubs/fres — interpreter (FMA ops, not yet JIT'd)
+    case 29: case 28: case 31: case 30: case 24:
+        return false;
 
     default:
         return false;
