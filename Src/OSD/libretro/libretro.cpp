@@ -49,7 +49,12 @@ CoreOptions g_options = {
    /* ppc_frequency        */ 0,
    /* frameskip            */ 0,
    /* sound_enable         */ true,
-   /* jit_enable           */ true,
+   /* jit_enable           */
+#ifdef __aarch64__
+                              true,
+#else
+                              false,
+#endif
 };
 
 // Optimization: Cache last known resolution to avoid redundant updates

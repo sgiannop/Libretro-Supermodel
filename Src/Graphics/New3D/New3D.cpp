@@ -534,7 +534,8 @@ void CNew3D::RenderFrame(void)
 				m_r3dFrameBuffers.SetFBO(Layer::trans1);
 				RenderScene(pri, renderOverlay, Layer::trans1);
 
-				m_r3dFrameBuffers.RestoreDepth();
+				// No RestoreDepth blit — SetFBO(trans2) binds m_frameBufferIDTrans2
+				// which is pre-wired to the copy depth (= opaque depth from StoreDepth).
 				m_r3dShader.SetLayer(Layer::trans2);
 				m_r3dFrameBuffers.SetFBO(Layer::trans2);
 				RenderScene(pri, renderOverlay, Layer::trans2);

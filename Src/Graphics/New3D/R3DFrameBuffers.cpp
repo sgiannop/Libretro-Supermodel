@@ -10,6 +10,7 @@ R3DFrameBuffers::R3DFrameBuffers()
 	m_renderBufferID = 0;
 	m_frameBufferIDCopy = 0;
 	m_renderBufferIDCopy = 0;
+	m_frameBufferIDTrans2 = 0;
 	m_width = 0;
 	m_height = 0;
 	m_vao = 0;
@@ -72,6 +73,7 @@ Result R3DFrameBuffers::CreateFBO(int width, int height)
 
 Result R3DFrameBuffers::CreateFBODepthCopy(int width, int height)
 {
+	// Depth-only copy FBO — receives the opaque depth via StoreDepth blit
 	glGenFramebuffers(1, &m_frameBufferIDCopy);
 	glBindFramebuffer(GL_FRAMEBUFFER, m_frameBufferIDCopy);
 
@@ -80,12 +82,19 @@ Result R3DFrameBuffers::CreateFBODepthCopy(int width, int height)
 	glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH32F_STENCIL8, width, height);
 	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, m_renderBufferIDCopy);
 
+	auto copyStatus = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+
+	// Trans2 FBO — shares the copy depth so SetFBO(trans2) needs no RestoreDepth blit
+	glGenFramebuffers(1, &m_frameBufferIDTrans2);
+	glBindFramebuffer(GL_FRAMEBUFFER, m_frameBufferIDTrans2);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_texIDs[2], 0);
+	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, m_renderBufferIDCopy);
+
+	auto trans2Status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
-	// check setup was successful
-	auto fboStatus = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-
-	return (fboStatus == GL_FRAMEBUFFER_COMPLETE) ? Result::OKAY : Result::FAIL;
+	return (copyStatus == GL_FRAMEBUFFER_COMPLETE && trans2Status == GL_FRAMEBUFFER_COMPLETE) ? Result::OKAY : Result::FAIL;
 }
 
 void R3DFrameBuffers::StoreDepth()
@@ -95,12 +104,6 @@ void R3DFrameBuffers::StoreDepth()
 	glBlitFramebuffer(0, 0, m_width, m_height, 0, 0, m_width, m_height, GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT, GL_NEAREST);
 }
 
-void R3DFrameBuffers::RestoreDepth()
-{
-	glBindFramebuffer(GL_READ_FRAMEBUFFER, m_frameBufferIDCopy);
-	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, m_frameBufferID);
-	glBlitFramebuffer(0, 0, m_width, m_height, 0, 0, m_width, m_height, GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT, GL_NEAREST);
-}
 
 void R3DFrameBuffers::DestroyFBO()
 {
@@ -115,6 +118,10 @@ void R3DFrameBuffers::DestroyFBO()
 		glDeleteFramebuffers(1, &m_frameBufferIDCopy);
 	}
 
+	if (m_frameBufferIDTrans2) {
+		glDeleteFramebuffers(1, &m_frameBufferIDTrans2);
+	}
+
 	for (auto &i : m_texIDs) {
 		if (i) {
 			glDeleteTextures(1, &i);
@@ -126,6 +133,7 @@ void R3DFrameBuffers::DestroyFBO()
 	m_renderBufferID = 0;
 	m_frameBufferIDCopy = 0;
 	m_renderBufferIDCopy = 0;
+	m_frameBufferIDTrans2 = 0;
 	m_width = 0;
 	m_height = 0;
 }
@@ -172,8 +180,9 @@ void R3DFrameBuffers::SetFBO(Layer layer)
 	}
 	case Layer::trans2:
 	{
-		glBindFramebuffer(GL_FRAMEBUFFER, m_frameBufferID);
-		GLenum buffers[] = { GL_NONE, GL_NONE, GL_COLOR_ATTACHMENT2 };
+		// m_frameBufferIDTrans2 has att2 color at slot 0 + copy depth (= opaque depth from StoreDepth)
+		glBindFramebuffer(GL_FRAMEBUFFER, m_frameBufferIDTrans2);
+		GLenum buffers[] = { GL_COLOR_ATTACHMENT0 };
 		glDrawBuffers((GLsizei)std::size(buffers), buffers);
 		break;
 	}

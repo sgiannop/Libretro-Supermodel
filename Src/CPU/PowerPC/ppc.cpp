@@ -1155,7 +1155,11 @@ UINT32 jit_read_tbl(void)                 { return (UINT32)ppc_read_timebase(); 
 UINT32 jit_read_tbu(void)                 { return (UINT32)(ppc_read_timebase() >> 32); }
 
 // SMC helper: invalidate any JIT block whose PC range covers addr.
+#ifdef __aarch64__
 static inline void smc_check(UINT32 addr) { JitArm64::get().smc_write(addr); }
+#else
+static inline void smc_check(UINT32 addr) { (void)addr; }
+#endif
 
 void   jit_write8(UINT32 addr, UINT32 d)  { smc_check(addr); Bus->Write8(addr, (UINT8)d); }
 void   jit_write16(UINT32 addr, UINT32 d) { smc_check(addr); Bus->Write16(addr, (UINT16)d); }

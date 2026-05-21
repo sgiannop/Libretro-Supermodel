@@ -21,7 +21,6 @@ public:
 	void	BindTexture(Layer layer);
 	void	SetFBO(Layer layer);
 	void	StoreDepth();
-	void	RestoreDepth();
 
 private:
 
@@ -34,6 +33,7 @@ private:
 	GLuint m_texIDs[3];
 	GLuint m_frameBufferIDCopy;
 	GLuint m_renderBufferIDCopy;
+	GLuint m_frameBufferIDTrans2;	// trans2 FBO: att2 color + copy depth, avoids RestoreDepth blit
 	Layer m_lastLayer;
 	int m_width;
 	int m_height;
